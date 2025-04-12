@@ -4,34 +4,30 @@ import shutil
 
 class ConfigFiles(dict):
     def __init__(self, filename):
-        self.filename=filename
-        self.config={
+        self.filename = filename
+        self.config = {
             "ftp.json": self.getDefaultFtpSettings,
             "GugusseSettings.json": self.getDefaultGugusseSettings,
             "hardwarecfg.json": self.getDefaultHardwareSettings,
-            "captureModes.json" : self.getDefaultCaptureModes
+            "captureModes.json": self.getDefaultCaptureModes,
         }
         try:
             with open(filename, "rt") as h:
-                data=json.load(h)
+                data = json.load(h)
         except:
-            data=self.config[filename]()
+            data = self.config[filename]()
             with open(filename, "wt") as h:
                 json.dump(data, h, indent=4)
         super(ConfigFiles, self).__init__(data)
+
     def save(self):
         with open(f"_{self.filename}", "wt") as h:
             json.dump(dict(self), h, sort_keys=True, indent=4)
-        shutil.move(f"_{self.filename}",self.filename)
-                
+        shutil.move(f"_{self.filename}", self.filename)
+
     def getDefaultFtpSettings(self):
-         return {
-             "passwd":"",
-             "path":"",
-             "server":"",
-             "user":""
-         }
-         
+        return {"passwd": "", "path": "", "server": "", "user": ""}
+
     def getDefaultGugusseSettings(self):
         return {
             "fps": 10,
@@ -46,23 +42,23 @@ class ConfigFiles(dict):
             "vflip": False,
             "hflip": False,
             "ReelsDirection": "cw",
-            "CaptureMode": "DNG"
+            "CaptureMode": "DNG",
         }
 
     def getDefaultCaptureModes(self):
         return {
             "DNG": {
-                "description":"12bits DNGs",
-                "suffix":"dng",
+                "description": "12bits DNGs",
+                "suffix": "dng",
             },
-            "singleJpg":{
-                "description":"simple jpg",
-                "suffix":"jpg",
-            },   
-            "bracketing":{
-                "description":"Bracketing (0,+1,-1) JPGs ",
-                "suffix":"jpg",
-            }
+            "singleJpg": {
+                "description": "simple jpg",
+                "suffix": "jpg",
+            },
+            "bracketing": {
+                "description": "Bracketing (0,+1,-1) JPGs ",
+                "suffix": "jpg",
+            },
         }
 
     def getDefaultHardwareSettings(self):
@@ -79,7 +75,7 @@ class ConfigFiles(dict):
                 "isFilmDrive": False,
                 "stopPin": 6,
                 "stopState": 1,
-                "flags": ["pullUp"]
+                "flags": ["pullUp"],
             },
             "filmFormats": {
                 "16mm": {
@@ -88,22 +84,22 @@ class ConfigFiles(dict):
                         "ignoreInitial": 10,
                         "speed": 1000.0,
                         "speed2": 100.0,
-                        "targetTime": 0.33
+                        "targetTime": 0.33,
                     },
                     "filmdrive": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 1800,
                         "speed": 9000.0,
                         "speed2": 1000.0,
-                        "targetTime": 0.4
+                        "targetTime": 0.4,
                     },
                     "pickup": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 10,
                         "speed": 2000.0,
                         "speed2": 100.0,
-                        "targetTime": 0.33
-                    }
+                        "targetTime": 0.33,
+                    },
                 },
                 "16mmBigReels": {
                     "feeder": {
@@ -111,22 +107,22 @@ class ConfigFiles(dict):
                         "ignoreInitial": 10,
                         "speed": 400.0,
                         "speed2": 100.0,
-                        "targetTime": 0.45
+                        "targetTime": 0.45,
                     },
                     "filmdrive": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 1800,
                         "speed": 9000.0,
                         "speed2": 1000.0,
-                        "targetTime": 0.4
+                        "targetTime": 0.4,
                     },
                     "pickup": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 10,
                         "speed": 1000.0,
                         "speed2": 100.0,
-                        "targetTime": 0.45
-                    }
+                        "targetTime": 0.45,
+                    },
                 },
                 "35mm": {
                     "feeder": {
@@ -134,22 +130,22 @@ class ConfigFiles(dict):
                         "ignoreInitial": 20,
                         "speed": 500.0,
                         "speed2": 500.0,
-                        "targetTime": 0.8
+                        "targetTime": 0.8,
                     },
                     "filmdrive": {
                         "faultTreshold": 15000,
                         "ignoreInitial": 4770,
                         "speed": 14000.0,
                         "speed2": 2000.0,
-                        "targetTime": 0.85
+                        "targetTime": 0.85,
                     },
                     "pickup": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 20,
                         "speed": 1000.0,
                         "speed2": 500.0,
-                        "targetTime": 0.8
-                    }
+                        "targetTime": 0.8,
+                    },
                 },
                 "35mmBigReels": {
                     "feeder": {
@@ -157,22 +153,22 @@ class ConfigFiles(dict):
                         "ignoreInitial": 20,
                         "speed": 200.0,
                         "speed2": 200.0,
-                        "targetTime": 1.2
+                        "targetTime": 1.2,
                     },
                     "filmdrive": {
                         "faultTreshold": 15000,
                         "ignoreInitial": 4770,
                         "speed": 14000.0,
                         "speed2": 2000.0,
-                        "targetTime": 0.85
+                        "targetTime": 0.85,
                     },
                     "pickup": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 20,
                         "speed": 500.0,
                         "speed2": 200.0,
-                        "targetTime": 1.2
-                    }
+                        "targetTime": 1.2,
+                    },
                 },
                 "35mmSoundtrack": {
                     "feeder": {
@@ -180,22 +176,22 @@ class ConfigFiles(dict):
                         "ignoreInitial": 20,
                         "speed": 400.0,
                         "speed2": 400.0,
-                        "targetTime": 0.25
+                        "targetTime": 0.25,
                     },
                     "filmdrive": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 1100,
                         "speed": 4000.0,
                         "speed2": 2000.0,
-                        "targetTime": 0.4
+                        "targetTime": 0.4,
                     },
                     "pickup": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 20,
                         "speed": 400.0,
                         "speed2": 400.0,
-                        "targetTime": 0.25
-                    }
+                        "targetTime": 0.25,
+                    },
                 },
                 "8mm": {
                     "feeder": {
@@ -203,22 +199,22 @@ class ConfigFiles(dict):
                         "ignoreInitial": 10,
                         "speed": 800.0,
                         "speed2": 100.0,
-                        "targetTime": 0.33
+                        "targetTime": 0.33,
                     },
                     "filmdrive": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 860,
                         "speed": 8000.0,
                         "speed2": 500.0,
-                        "targetTime": 0.25
+                        "targetTime": 0.25,
                     },
                     "pickup": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 10,
                         "speed": 800.0,
                         "speed2": 100.0,
-                        "targetTime": 0.33
-                    }
+                        "targetTime": 0.33,
+                    },
                 },
                 "pathex": {
                     "feeder": {
@@ -226,22 +222,22 @@ class ConfigFiles(dict):
                         "ignoreInitial": 10,
                         "speed": 800.0,
                         "speed2": 100.0,
-                        "targetTime": 0.33
+                        "targetTime": 0.33,
                     },
                     "filmdrive": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 1800,
                         "speed": 12000.0,
                         "speed2": 2000.0,
-                        "targetTime": 0.4
+                        "targetTime": 0.4,
                     },
                     "pickup": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 10,
                         "speed": 800.0,
                         "speed2": 100.0,
-                        "targetTime": 0.33
-                    }
+                        "targetTime": 0.33,
+                    },
                 },
                 "super8": {
                     "feeder": {
@@ -249,23 +245,23 @@ class ConfigFiles(dict):
                         "ignoreInitial": 0,
                         "speed": 800.0,
                         "speed2": 100.0,
-                        "targetTime": 0.33
+                        "targetTime": 0.33,
                     },
                     "filmdrive": {
                         "faultTreshold": 16000,
                         "ignoreInitial": 950,
                         "speed": 4500.0,
                         "speed2": 400.0,
-                        "targetTime": 0.4
+                        "targetTime": 0.4,
                     },
                     "pickup": {
                         "faultTreshold": 8000,
                         "ignoreInitial": 0,
                         "speed": 800.0,
                         "speed2": 100.0,
-                        "targetTime": 0.33
-                    }
-                }
+                        "targetTime": 0.33,
+                    },
+                },
             },
             "filmdrive": {
                 "minSpeed": 20,
@@ -279,13 +275,9 @@ class ConfigFiles(dict):
                 "isFilmDrive": True,
                 "stopPin": 26,
                 "stopState": 1,
-                "flags":[]
+                "flags": [],
             },
-            "lights": {
-                "blue": 22,
-                "green": 27,
-                "red": 17
-            },
+            "lights": {"blue": 22, "green": 27, "red": 17},
             "pickup": {
                 "invert": False,
                 "maxSpeed": 20000,
@@ -297,6 +289,6 @@ class ConfigFiles(dict):
                 "isFilmDrive": False,
                 "stopPin": 13,
                 "stopState": 1,
-                "flags":["pullUp"]
-            }
+                "flags": ["pullUp"],
+            },
         }
