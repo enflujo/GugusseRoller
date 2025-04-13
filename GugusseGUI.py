@@ -133,7 +133,6 @@ class MainWindow(QMainWindow):
         self.light_selector = LightControlWidget(self)
         hlayout.addWidget(self.light_selector.getLabel())
         hlayout.addWidget(self.light_selector)
-        left_layout.addLayout(hlayout)
 
         hlayout.addWidget(self.projectName.getLabel())
         hlayout.addWidget(self.projectName)
