@@ -38,3 +38,17 @@ The objectives of the software is to:
     3. right arm aligned in middle
 - Capture each frame, save it as jpeg (or better as a 12bits raw DNG)
 - Transfer the file to a ftp server
+
+## Estabilización de imagen
+
+Luego de digitalizar se debe estabilizar la imagen y sincronizar el sonido (si tiene). En este video se puede ver el proceso completo: https://www.youtube.com/watch?v=5_hXPkGXYCw
+
+### Mostrar solo las perforaciones para estabilizar
+
+1. En ventana de Color:
+   1. Decode using: **Clip**
+   2. Activar: **Highlight Recovery**
+   3. Shadows: **-100**
+   4. Lift: **-100**
+   5. Contrast: **100**
+   6. Luego ajustar "Exposure" hasta que las perforaciones sean lo más brillante y la imagen completamente negra o lo más oscura posible.
