@@ -12,6 +12,7 @@ import CameraSettings
 import CaptureSettings
 import CaptureLoop
 import SensorReport
+# import FocusPeaking
 from ConfigFiles import ConfigFiles
 
 class MainWindow(QMainWindow):
@@ -166,9 +167,12 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(hlayout)
         self.sensors=SensorReport.SensorsWidgets(self)
         left_layout.addLayout(self.sensors)
-        
-        left_widget.setLayout(left_layout)
-        self.bottom_layout.addWidget(left_widget)
+
+        # Focus peaking
+        # self.focusPeaking=FocusPeaking.FocusPeakingWidgets(self)
+        # left_layout.addLayout(self.focusPeaking)
+        # left_widget.setLayout(left_layout)
+        # self.bottom_layout.addWidget(left_widget)
 
         # Text output area
         self.out.setReadOnly(True)
@@ -200,6 +204,7 @@ class MainWindow(QMainWindow):
         self.captureMode.setEnabled(False)
         self.sensors.learn.setEnabled(False)
         self.snapshot.setEnabled(False)
+        # self.focusPeaking.setEnabled(False)
 
     def reenableWidgetsAfterCapture(self):
         self.light_selector.setEnabled(True)
@@ -211,6 +216,7 @@ class MainWindow(QMainWindow):
         self.motors["feeder"].syncMotorStatus()
         self.motors["filmdrive"].syncMotorStatus()
         self.motors["pickup"].syncMotorStatus()
+        # self.focusPeaking.setEnabled(True)
         
 
     def getBottomLayout(self):
