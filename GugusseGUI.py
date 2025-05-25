@@ -171,8 +171,8 @@ class MainWindow(QMainWindow):
         # Focus peaking
         # self.focusPeaking=FocusPeaking.FocusPeakingWidgets(self)
         # left_layout.addLayout(self.focusPeaking)
-        # left_widget.setLayout(left_layout)
-        # self.bottom_layout.addWidget(left_widget)
+        left_widget.setLayout(left_layout)
+        self.bottom_layout.addWidget(left_widget)
 
         # Text output area
         self.out.setReadOnly(True)
