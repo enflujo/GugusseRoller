@@ -312,6 +312,29 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # Stop sensors monitoring thread if active
+        try:
+            if hasattr(self, "sensors") and self.sensors is not None:
+                self.sensors.stopMonitoring()
+        except Exception:
+            pass
+
+        # Final hardware cleanup: turn lights off and disable motors
+        try:
+            # Lights off via widget signal to keep UI state consistent
+            if hasattr(self, "light_selector"):
+                self.light_selector.handleSignal("off")
+        except Exception:
+            pass
+
+        try:
+            # Disable motors if they exist
+            for name in ["feeder", "filmdrive", "pickup"]:
+                if name in getattr(self, "motors", {}):
+                    self.motors[name].motor.disable()
+        except Exception:
+            pass
+
 
 app = QApplication(sys.argv)
 window = MainWindow()

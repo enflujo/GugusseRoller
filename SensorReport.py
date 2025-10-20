@@ -91,7 +91,12 @@ class SensorsWidgets(QHBoxLayout):
             self.setcolors(self.startStop, "grey", "grey")
             self.startStop.setEnabled(False)
             self.learn.setEnabled(False)
-            self.task.stopLoop()
+            try:
+                if self.task is not None:
+                    self.task.stopLoop()
+                    self.task.wait()
+            except Exception:
+                pass
             self.task = None
 
     def handleLearn(self, checked):
@@ -145,3 +150,20 @@ class SensorsWidgets(QHBoxLayout):
                 self.setcolors(lbl, "black", "white")
             else:
                 self.setcolors(lbl, "lightgreen", "black")
+
+    def stopMonitoring(self):
+        """Safely stop and wait for the monitoring thread if running."""
+        try:
+            if getattr(self, "task", None) is not None:
+                self.task.stopLoop()
+                self.task.wait()
+                self.task = None
+        except Exception:
+            pass
+        # Best-effort UI sync without firing toggled handler again
+        try:
+            self.startStop.blockSignals(True)
+            self.startStop.setChecked(False)
+            self.startStop.blockSignals(False)
+        except Exception:
+            pass
