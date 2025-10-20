@@ -17,31 +17,31 @@ GPIO.setmode(GPIO.BCM)
 
 
 class MotorThread(threading.Thread):
-   def __init__(self, motor, maxClicks):
-      threading.Thread.__init__(self)
-         self.motor = motor
-         self.maxClicks = maxClicks
+    def __init__(self, motor, maxClicks):
+        threading.Thread.__init__(self)
+        self.motor = motor
+        self.maxClicks = maxClicks
 
-   def run(self):
-      self.motor.move()
+    def run(self):
+        self.motor.move()
 
 
 class Rewind:
-   def __init__(self, cfg):
-      for item in cfg:
-         if isinstance(cfg[item], dict):
-            cfg[item]["name"] = item
-         # We rewinding so...
-         cfg["feeder"]["invert"] = not cfg["feeder"]["invert"]
-         self.feeder = TrinamicSilentMotor(cfg["feeder"])
-         self.pickup = TrinamicSilentMotor(cfg["pickup"])
-         self.pickup.disable()
-         self.feeder.enable()
+    def __init__(self, cfg):
+        for item in cfg:
+            if isinstance(cfg[item], dict):
+                cfg[item]["name"] = item
+            # We rewinding so...
+            cfg["feeder"]["invert"] = not cfg["feeder"]["invert"]
+            self.feeder = TrinamicSilentMotor(cfg["feeder"])
+            self.pickup = TrinamicSilentMotor(cfg["pickup"])
+            self.pickup.disable()
+            self.feeder.enable()
 
-   def frameAdvance(self):
-      m2 = MotorThread(self.feeder, 100000000)
-      m2.start()
-      m2.join()
+    def frameAdvance(self):
+        m2 = MotorThread(self.feeder, 100000000)
+        m2.start()
+        m2.join()
 
 
 import sys
