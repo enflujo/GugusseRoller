@@ -159,6 +159,8 @@ class MainWindow(QMainWindow):
         hlayout.addWidget(self.light_selector)
         left_layout.addLayout(hlayout)
 
+        # Project name row (use a NEW layout, do not reuse the previous one)
+        hlayout = QHBoxLayout()
         hlayout.addWidget(self.projectName.getLabel())
         hlayout.addWidget(self.projectName)
         self.lastFileLabel = QLabel("...")
@@ -265,18 +267,50 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.Save:
                 # save the work and exit
                 self.saveSettings.execute()
-                self.snapshot.disableExportIfRunning()
+                # Ensure capture loop and threads are cleanly stopped before exit
+                self._shutdownThreads()
                 event.accept()
             elif reply == QMessageBox.Discard:
                 # discard the work and exit
-                self.snapshot.disableExportIfRunning()
+                self._shutdownThreads()
                 event.accept()
             else:
                 # cancel the close event
                 event.ignore()
         else:
-            self.snapshot.disableExportIfRunning()
+            self._shutdownThreads()
             event.accept()
+
+    def _shutdownThreads(self):
+        # Stop snapshot export thread if needed
+        try:
+            self.snapshot.disableExportIfRunning()
+        except Exception:
+            pass
+
+        # If a snapshot capture is underway, wait for it to finish
+        try:
+            if hasattr(self.snapshot, "trigger") and self.snapshot.trigger is not None:
+                if self.snapshot.trigger.isRunning():
+                    self.snapshot.trigger.wait()
+        except Exception:
+            pass
+
+        # If capture loop is running, stop it and wait for it to finish
+        try:
+            if getattr(self.runStop, "running", False):
+                if hasattr(self.runStop, "run") and self.runStop.run is not None:
+                    self.runStop.run.stopLoop()
+                    # Wait for the QThread to finish to avoid Qt destroying a running thread
+                    self.runStop.run.wait()
+        except Exception:
+            pass
+
+        # Stop camera preview/processing threads
+        try:
+            self.picam2.stop()
+        except Exception:
+            pass
 
 
 app = QApplication(sys.argv)
