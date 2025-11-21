@@ -20,10 +20,10 @@ You can find all the instructions, the files to make your 3D
 printed parts and the one to make the PCB for free, no strings
 attached, at www.deniscarl.com
 
-## DEPENDENCIES:
+## DEPENDENCIES
 
 Raspbian Bulleyes. Use the 64bits version if you want support
-      
+
 The resulting machine is fully functional and stable but it
 is still evolving. You can watch or participate this evolution at
 https://www.facebook.com/Gugusse-Roller-2216783521714775/
@@ -69,5 +69,17 @@ Run the script with nodemon for hot-reloading.
 ```bash
 nodemon --exec python3 GugusseGUI.py --watch .
 ```
-    
-    
+
+## Estabilización de imagen
+
+Luego de digitalizar se debe estabilizar la imagen y sincronizar el sonido (si tiene). En este video se puede ver el proceso completo: https://www.youtube.com/watch?v=5_hXPkGXYCw
+
+### Mostrar solo las perforaciones para estabilizar
+
+1. En ventana de Color:
+   1. Decode using: **Clip**
+   2. Activar: **Highlight Recovery**
+   3. Shadows: **-100**
+   4. Lift: **-100**
+   5. Contrast: **100**
+   6. Luego ajustar "Exposure" hasta que las perforaciones sean lo más brillante y la imagen completamente negra o lo más oscura posible.
