@@ -110,6 +110,10 @@ class previewWindowWidget(QGlPicamera2):
         self.zoomed=True
 
 
+
+
+
+
 class ExposureDualWidget(QSlider):
     def __init__(self, win):
         QSlider.__init__(self, Qt.Horizontal)
