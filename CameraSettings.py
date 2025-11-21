@@ -1,9 +1,8 @@
 from PyQt5.QtWidgets import QSlider, QComboBox, QLabel, QPushButton, QCheckBox
-from PyQt5.QtCore import Qt, QThread
-from PyQt5.QtGui import QPixmap
-from libcamera import controls
+from PyQt5.QtCore import Qt
+from libcamera import controls, Transform
+from picamera2 import Preview
 from picamera2.previews.qt import QGlPicamera2
-# from FocusPeaking import FocusWorker
 
 defaultValues={
     "Exposure": "Manual",
@@ -63,31 +62,10 @@ class AutoExposureWidget(QComboBox):
 
 class previewWindowWidget(QGlPicamera2):
     def __init__(self, win):
-        super().__init__(win.picam2)
+        QGlPicamera2.__init__(self, win.picam2)
         self.zoomed=False
         self.win=win
-        # self.win.picam2.post_callback = self.processFrame
-
-        # self.focusWorker = None  # Aún no hay worker
-
-        self.overlayLabel = QLabel(self)
-        self.overlayLabel.setGeometry(0, 0, self.width(), self.height())
-        self.overlayLabel.setScaledContents(True)
-        # let the click event pass through to the widget
-        self.overlayLabel.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.overlayLabel.hide()
         
-
-    def resizeEvent(self, event):
-        # keep the size of the overlayLabel the same as the widget
-        self.overlayLabel.setGeometry(0, 0, self.width(), self.height())
-
-    def setFocusPeaking(self, focusPeaking):
-        self.thread = QThread()
-        # self.focusWorker = FocusWorker(focusPeaking)
-        # self.focusWorker.moveToThread(self.thread)
-        # self.focusWorker.imageReady.connect(self.setProcessedPixmap)  # Tu función para actualizar la vista
-        # self.thread.start()
 
     def mousePressEvent(self, event):
         if self.win.runStop.isCapturing():
@@ -129,17 +107,6 @@ class previewWindowWidget(QGlPicamera2):
 
         self.win.picam2.set_controls({"ScalerCrop":(x1,y1,winw,winh)})
         self.zoomed=True
-
-    # def processFrame(self, request):
-    #     if self.win.focusPeaking.peaking:
-    #         frame = request.make_array('main')
-    #         # self.focusWorker.newFrame.emit(frame)
-    #         self.overlayLabel.show()
-    #     else:
-    #         self.overlayLabel.hide()
-            
-    # def setProcessedPixmap(self, qimage):
-    #     self.overlayLabel.setPixmap(QPixmap.fromImage(qimage))
 
 
 
