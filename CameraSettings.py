@@ -4,6 +4,8 @@ from libcamera import controls, Transform
 from picamera2 import Preview
 from picamera2.previews.qt import QGlPicamera2
 
+
+
 defaultValues={
     "Exposure": "Manual",
     "ExposureMicroseconds": 30000,
@@ -65,7 +67,6 @@ class previewWindowWidget(QGlPicamera2):
         QGlPicamera2.__init__(self, win.picam2)
         self.zoomed=False
         self.win=win
-        
 
     def mousePressEvent(self, event):
         if self.win.runStop.isCapturing():
@@ -107,8 +108,6 @@ class previewWindowWidget(QGlPicamera2):
 
         self.win.picam2.set_controls({"ScalerCrop":(x1,y1,winw,winh)})
         self.zoomed=True
-
-
 
 
 class ExposureDualWidget(QSlider):
