@@ -157,7 +157,6 @@ class MainWindow(QMainWindow):
         self.light_selector = LightControlWidget(self)
         hlayout.addWidget(self.light_selector.getLabel())
         hlayout.addWidget(self.light_selector)
-        left_layout.addLayout(hlayout)
 
         # Project name row (use a NEW layout, do not reuse the previous one)
         hlayout = QHBoxLayout()
