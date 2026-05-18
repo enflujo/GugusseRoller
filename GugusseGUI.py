@@ -1,5 +1,7 @@
 import sys
 import json
+from datetime import datetime
+from os import makedirs
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -7,13 +9,8 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QWidget,
     QLabel,
-    QSlider,
-    QComboBox,
-    QPushButton,
-    QLineEdit,
     QTextEdit,
     QSplitter,
-    QSizePolicy,
     QWidget,
     QMessageBox,
 )
@@ -30,12 +27,19 @@ import CaptureLoop
 import SensorReport
 from ConfigFiles import ConfigFiles
 
+FILE_ONLY_LOG_PREFIXES = ("perf ", "ftpstats,", "localstats,")
+
 
 class MainWindow(QMainWindow):
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
         self.setWindowTitle("GugusseGUI 2.0")
         self.settings = ConfigFiles("GugusseSettings.json")
+        makedirs("logs", exist_ok=True)
+        self.session_log_path = (
+            f"logs/{datetime.now().strftime('%Y%m%d-%H%M%S')}-gugusse.log"
+        )
+        self.session_log = open(self.session_log_path, "a", buffering=1)
         print(json.dumps(self.settings, indent=4))
         fps = self.settings["fps"]
 
@@ -151,14 +155,15 @@ class MainWindow(QMainWindow):
 
         left_layout.addLayout(threeMotorsLayout)
 
-        # Project name field
-        self.projectName = CaptureSettings.ProjectNameWidget(self)
+        # Light control
         hlayout = QHBoxLayout()
         self.light_selector = LightControlWidget(self)
         hlayout.addWidget(self.light_selector.getLabel())
         hlayout.addWidget(self.light_selector)
+        left_layout.addLayout(hlayout)
 
-        # Project name row (use a NEW layout, do not reuse the previous one)
+        # Project name
+        self.projectName = CaptureSettings.ProjectNameWidget(self)
         hlayout = QHBoxLayout()
         hlayout.addWidget(self.projectName.getLabel())
         hlayout.addWidget(self.projectName)
@@ -217,6 +222,22 @@ class MainWindow(QMainWindow):
         self.sharpness.syncCamera()
         self.hflip.syncCamera()  # syncing one syncs the other, and start cam
         self.picam2.start()
+        self.log(f"Session log: {self.session_log_path}")
+
+    def shouldShowLogInGui(self, msg):
+        return not msg.startswith(FILE_ONLY_LOG_PREFIXES)
+
+    def log(self, message):
+        msg = str(message)
+        if self.shouldShowLogInGui(msg):
+            self.out.append(msg)
+        if getattr(self, "session_log", None) is not None:
+            self.session_log.write(f"{datetime.now().isoformat()} {msg}\n")
+
+    def closeLog(self):
+        if getattr(self, "session_log", None) is not None:
+            self.session_log.close()
+            self.session_log = None
 
     def disableWidgetsWhenCapture(self):
         self.light_selector.setEnabled(False)
@@ -241,17 +262,17 @@ class MainWindow(QMainWindow):
         return self.bottom_layout
 
     def on_slider_value_changed(self, control, value):
-        self.out.append(f"Slider value changed for control: {control} to {value}")
+        self.log(f"Slider value changed for control: {control} to {value}")
 
     def on_light_selector_changed(self, text):
-        self.out.append(f"Light selector changed to {text}")
+        self.log(f"Light selector changed to {text}")
 
     def on_selector_changed(self, control, text):
-        self.out.append(f"Selector changed for control: {control} to {text}")
+        self.log(f"Selector changed for control: {control} to {text}")
 
     def on_button_clicked(self, control):
         self.bottom_layout.repaint()
-        self.out.append(f"Button clicked for control: {control}")
+        self.log(f"Button clicked for control: {control}")
 
     def closeEvent(self, event):
         if self.saveSettings.thereAreUnsavedSettings():
@@ -333,6 +354,7 @@ class MainWindow(QMainWindow):
                     self.motors[name].motor.disable()
         except Exception:
             pass
+        self.closeLog()
 
 
 app = QApplication(sys.argv)

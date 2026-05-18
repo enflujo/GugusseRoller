@@ -10,9 +10,108 @@ from FtpThread import FtpThread
 from LocalThread import LocalThread
 from ConfigFiles import ConfigFiles
 
+STEP_DOMAIN_FIELDS = ("speed", "speed2", "ignoreInitial", "faultTreshold")
+MOTOR_NAMES = ("feeder", "filmdrive", "pickup")
+
+
+def _scale_step_value(field, value, scale):
+    if field in ("ignoreInitial", "faultTreshold"):
+        scaled = int(round(value * scale))
+        if field == "faultTreshold":
+            return max(1, scaled)
+        return max(0, scaled)
+    return value * scale
+
+
+def resolve_motor_format_cfg(cfg):
+    special_keys = {"reference", "driverStepScale"}
+    if "reference" not in cfg:
+        return dict(cfg)
+
+    resolved = dict(cfg["reference"])
+    step_scale = cfg.get("driverStepScale", 1.0)
+    if step_scale != 1.0:
+        for field in STEP_DOMAIN_FIELDS:
+            if field in resolved:
+                resolved[field] = _scale_step_value(field, resolved[field], step_scale)
+    for key, value in cfg.items():
+        if key not in special_keys:
+            resolved[key] = value
+    return resolved
+
+
+def resolve_film_format_cfg(raw_cfg):
+    resolved = {}
+    for key, value in raw_cfg.items():
+        if key in MOTOR_NAMES:
+            resolved[key] = resolve_motor_format_cfg(value)
+        else:
+            resolved[key] = value
+    return resolved
+
+
+class FrameTimingReporter:
+    def __init__(self, signal, group_size=10):
+        self.signal = signal
+        self.group_size = group_size
+        self.metrics = [
+            "total_s",
+            "settle_s",
+            "capture_s",
+            "skip_s",
+            "buffer_s",
+            "save_s",
+            "rename_s",
+            "reels_s",
+            "filmdrive_s",
+        ]
+        self.accum = {metric: 0.0 for metric in self.metrics}
+        self.frames = 0
+        self.max_queue = 0
+
+    def record(self, stats):
+        self.frames += 1
+        for metric in self.metrics:
+            self.accum[metric] += stats.get(metric, 0.0)
+        self.max_queue = max(self.max_queue, stats.get("queue_saturated", 0))
+        if self.frames <= 3 or stats.get("queue_saturated", 0) > 0:
+            self.signal.emit(
+                "perf frame={:04d} total={:.3f}s capture={:.3f}s "
+                "skip={:.3f}s save={:.3f}s reels={:.3f}s "
+                "filmdrive={:.3f}s queue={}".format(
+                    self.frames,
+                    stats.get("total_s", 0.0),
+                    stats.get("capture_s", 0.0),
+                    stats.get("skip_s", 0.0),
+                    stats.get("save_s", 0.0),
+                    stats.get("reels_s", 0.0),
+                    stats.get("filmdrive_s", 0.0),
+                    stats.get("queue_saturated", 0),
+                )
+            )
+        if self.frames % self.group_size != 0:
+            return
+        self.signal.emit(
+            "perf avg{:02d} total={:.3f}s capture={:.3f}s "
+            "skip={:.3f}s save={:.3f}s settle={:.3f}s "
+            "reels={:.3f}s filmdrive={:.3f}s queue_max={}".format(
+                self.group_size,
+                self.accum["total_s"] / self.group_size,
+                self.accum["capture_s"] / self.group_size,
+                self.accum["skip_s"] / self.group_size,
+                self.accum["save_s"] / self.group_size,
+                self.accum["settle_s"] / self.group_size,
+                self.accum["reels_s"] / self.group_size,
+                self.accum["filmdrive_s"] / self.group_size,
+                self.max_queue,
+            )
+        )
+        self.accum = {metric: 0.0 for metric in self.metrics}
+        self.max_queue = 0
+
 
 class FrameSequence:
-    def __init__(self, win, start_frame, signal):
+    def __init__(self, win, start_frame, signal, capture_tuning=None):
         self.win = win
         self.signal = signal
         self.filmdrive = self.win.motors["filmdrive"].motor
@@ -25,12 +124,15 @@ class FrameSequence:
             pass
         self.cam = self.win.picam2
         self.cam.setFileIndex(start_frame)
+        self.capture_tuning = capture_tuning or {}
+        self.settle_delay = self.capture_tuning.get("settleDelay", 0.1)
         self.win.light_selector.signal.emit("on")
         self.feeder.enable()
         self.pickup.enable()
         self.signal.emit("syncMotors")
 
     def frameAdvance(self):
+        frame_start = time()
         m1 = MotorThread(self.filmdrive)
         m2 = MotorThread(self.feeder)
         m3 = MotorThread(self.pickup)
@@ -53,9 +155,11 @@ class FrameSequence:
             self.signal.emit("sensors, wire disconnected...")
             self.signal.emit("---------------------------------------------")
             raise Exception("Capture stopped by Motor Faults!")
-        sleep(0.1)
+        settle_start = time()
+        sleep(self.settle_delay)
+        settle_s = time() - settle_start
         try:
-            self.cam.captureCycle()
+            capture_stats = self.cam.captureCycle()
         except Exception as e:
             self.feeder.disable()
             self.filmdrive.disable()
@@ -64,12 +168,28 @@ class FrameSequence:
             self.signal.emit("syncMotors")
             self.signal.emit("turning lights off")
             raise Exception("Stop")
+        reels_start = time()
         m2.start()
         m3.start()
         m3.join()
         m2.join()
+        reels_s = time() - reels_start
+        filmdrive_start = time()
         m1.start()
         m1.join()
+        filmdrive_s = time() - filmdrive_start
+        return {
+            "settle_s": settle_s,
+            "capture_s": capture_stats.get("capture_s", 0.0),
+            "skip_s": capture_stats.get("skip_s", 0.0),
+            "buffer_s": capture_stats.get("buffer_s", 0.0),
+            "save_s": capture_stats.get("save_s", 0.0),
+            "rename_s": capture_stats.get("rename_s", 0.0),
+            "reels_s": reels_s,
+            "filmdrive_s": filmdrive_s,
+            "queue_saturated": len(listdir("/dev/shm/complete")),
+            "total_s": time() - frame_start,
+        }
 
 
 class MotorThread(Thread):
@@ -92,12 +212,41 @@ class CaptureLoop(QThread):
     def run(self):
         # send msgs
         self.signal.emit("Capture loop start")
-        currentFilmFormatCfg = self.win.hwSettings["filmFormats"][
+        rawFilmFormatCfg = self.win.hwSettings["filmFormats"][
             self.win.filmFormat.currentText()
         ]
+        currentFilmFormatCfg = resolve_film_format_cfg(rawFilmFormatCfg)
+        captureTuning = currentFilmFormatCfg.get("capture", {})
         self.win.motors["feeder"].motor.setFormat(currentFilmFormatCfg["feeder"])
         self.win.motors["filmdrive"].motor.setFormat(currentFilmFormatCfg["filmdrive"])
         self.win.motors["pickup"].motor.setFormat(currentFilmFormatCfg["pickup"])
+        self.win.picam2.setCaptureTuning(captureTuning)
+        self.reporter = FrameTimingReporter(self.signal)
+        self.signal.emit(
+            "perf profile format={} mode={} saveMode={} tuning={}".format(
+                self.win.filmFormat.currentText(),
+                self.win.captureMode.currentText(),
+                self.win.hwSettings.get("saveMode", "ftp"),
+                captureTuning,
+            )
+        )
+        self.signal.emit(
+            "perf motors format={} feeder={} filmdrive={} pickup={}".format(
+                self.win.filmFormat.currentText(),
+                currentFilmFormatCfg["feeder"],
+                currentFilmFormatCfg["filmdrive"],
+                currentFilmFormatCfg["pickup"],
+            )
+        )
+        if rawFilmFormatCfg != currentFilmFormatCfg:
+            self.signal.emit(
+                "perf motor-profile format={} feeder={} filmdrive={} pickup={}".format(
+                    self.win.filmFormat.currentText(),
+                    rawFilmFormatCfg["feeder"],
+                    rawFilmFormatCfg["filmdrive"],
+                    rawFilmFormatCfg["pickup"],
+                )
+            )
 
         self.win.motors["feeder"].motor.enable()
         self.win.motors["filmdrive"].motor.enable()
@@ -131,13 +280,34 @@ class CaptureLoop(QThread):
                 self.captureModes[self.win.captureMode.currentText()]["suffix"],
                 self.signal,
             )
-        start = self.export.getStartPoint()
-        self.export.start()
-        self.sequence = FrameSequence(self.win, start, self.signal)
+        try:
+            start = self.export.getStartPoint()
+            self.export.start()
+            self.sequence = FrameSequence(
+                self.win, start, self.signal, capture_tuning=captureTuning
+            )
+        except Exception as e:
+            self.signal.emit(f"Export initialization failed: {e}")
+            try:
+                if getattr(self, "export", None) is not None and self.export.is_alive():
+                    self.export.stopLoop()
+                    self.export.join()
+            except Exception:
+                pass
+            for name in ["feeder", "filmdrive", "pickup"]:
+                try:
+                    self.win.motors[name].motor.disable()
+                except Exception:
+                    pass
+            self.signal.emit("syncMotors")
+            self.signal.emit("turning lights off")
+            self.signal.emit("Capture stopped!")
+            return
 
         while self.Loop:
             try:
-                self.sequence.frameAdvance()
+                frame_stats = self.sequence.frameAdvance()
+                self.reporter.record(frame_stats)
             except Exception as e:
                 self.signal.emit(str(e))
                 self.stopLoop()
@@ -182,18 +352,25 @@ class RunStopWidget(QPushButton):
         self.signal.connect(self.handleSignal)
         self.running = False
         self.stopping = False
+        self.run = None
 
     def captureWidgetsEnable(self, state):
-        self.win.filmFormat.setEnabled(state)
-        self.win.projectName.setEnabled(state)
-        self.win.captureMode.setEnabled(state)
-        self.win.light_selector.setEnabled(state)
+        if state:
+            self.win.reenableWidgetsAfterCapture()
+        else:
+            self.win.disableWidgetsWhenCapture()
 
     def handlePush(self):
         if not self.running:
+            if self.win.snapshot.isCaptureInProgress():
+                self.win.log(
+                    "Snapshot in progress, wait for it to finish before starting Run"
+                )
+                return
             self.win.snapshot.disableExportIfRunning()
             self.captureWidgetsEnable(False)
             self.running = True
+            self.stopping = False
             self.run = CaptureLoop(self.win, self.signal)
             self.run.start()
             self.setText("Stop")
@@ -210,7 +387,7 @@ class RunStopWidget(QPushButton):
         if self.running:
             self.win.motors["feeder"].motor.setDirection(direction)
             self.win.motors["pickup"].motor.setDirection(direction)
-            self.win.out.append(f"Changing reels directions live to {direction}")
+            self.win.log(f"Changing reels directions live to {direction}")
 
     def handleSignal(self, unfiltered):
         msg = str(unfiltered)
@@ -221,7 +398,7 @@ class RunStopWidget(QPushButton):
             )
             self.lastNum = s[1]
             return
-        self.win.out.append(msg)
+        self.win.log(msg)
         if msg == "syncMotors":
             self.win.motors["feeder"].syncMotorStatus()
             self.win.motors["filmdrive"].syncMotorStatus()
@@ -234,6 +411,8 @@ class RunStopWidget(QPushButton):
             self.setText("Run")
             self.captureWidgetsEnable(True)
             self.running = False
+            self.stopping = False
+            self.run = None
             self.setEnabled(True)
         if msg == "Stopping Loop":
             self.setEnabled(False)
@@ -247,8 +426,11 @@ class singleShotEvent(QThread):
         self.signal = signal
 
     def run(self):
-        self.picam2.captureCycle()
-        self.signal.emit("captureDone")
+        try:
+            self.picam2.captureCycle()
+            self.signal.emit("captureDone")
+        except Exception as e:
+            self.signal.emit(f"captureFailed,{e}")
 
 
 class SnapshotWidget(QPushButton):
@@ -265,28 +447,38 @@ class SnapshotWidget(QPushButton):
         self.signal.connect(self.signalHandle)
         self.ignore = False
         self.lastNum = 0
+        self.trigger = None
+
+    def isCaptureInProgress(self):
+        return self.ignore or (
+            self.trigger is not None and self.trigger.isRunning()
+        )
 
     def initialize(self):
         self.disableExportIfRunning()
         self.projectName = self.win.projectName.text()
-        if (
-            "saveMode" in self.win.hwSettings
-            and self.win.hwSettings["saveMode"] == "local"
-        ):
-            self.export = LocalThread(
-                self.win.projectName.text(),
-                self.captureModes[self.win.captureMode.currentText()]["suffix"],
-                self.signal,
-                self.win.hwSettings["localFilePath"],
-            )
-        else:
-            self.export = FtpThread(
-                self.win.projectName.text(),
-                self.captureModes[self.win.captureMode.currentText()]["suffix"],
-                self.signal,
-            )
-        self.win.picam2.setFileIndex(self.export.getStartPoint())
-        self.export.start()
+        try:
+            if (
+                "saveMode" in self.win.hwSettings
+                and self.win.hwSettings["saveMode"] == "local"
+            ):
+                self.export = LocalThread(
+                    self.win.projectName.text(),
+                    self.captureModes[self.win.captureMode.currentText()]["suffix"],
+                    self.signal,
+                    self.win.hwSettings["localFilePath"],
+                )
+            else:
+                self.export = FtpThread(
+                    self.win.projectName.text(),
+                    self.captureModes[self.win.captureMode.currentText()]["suffix"],
+                    self.signal,
+                )
+            self.win.picam2.setFileIndex(self.export.getStartPoint())
+            self.export.start()
+        except Exception:
+            self.export = None
+            raise
 
     def disableExportIfRunning(self):
         if self.export != None:
@@ -295,21 +487,40 @@ class SnapshotWidget(QPushButton):
             self.export = None
 
     def handle(self):
-        if self.ignore:
-            self.win.out.append("Too early to click again for a snapshot!")
+        if self.win.runStop.isCapturing():
+            self.win.log("Snapshot is disabled while the capture loop is running")
             return
-        if self.export == None or self.win.projectName.text() != self.projectName:
-            self.initialize()
+        if self.ignore:
+            self.win.log("Too early to click again for a snapshot!")
+            return
+        try:
+            if self.export == None or self.win.projectName.text() != self.projectName:
+                self.initialize()
+        except Exception as e:
+            self.win.log(f"Snapshot initialization failed: {e}")
+            return
         self.trigger = singleShotEvent(self.win.picam2, self.signal)
         self.ignore = True
+        self.win.runStop.setEnabled(False)
         self.trigger.start()
 
     def signalHandle(self, unfiltered):
         msg = str(unfiltered)
         if msg == "captureDone":
             self.ignore = False
+            self.trigger = None
+            if not self.win.runStop.isCapturing():
+                self.win.runStop.setEnabled(True)
+        elif msg[0:4] == "xfer":
+            self.lastNum = msg.split(",", 1)[1].split("/")[-1]
             self.win.lastFileLabel.setText(
                 f"LAST: {datetime.now().strftime('%H:%M:%S')} {self.lastNum}"
             )
+        elif msg[0:14] == "captureFailed,":
+            self.ignore = False
+            self.trigger = None
+            if not self.win.runStop.isCapturing():
+                self.win.runStop.setEnabled(True)
+            self.win.log(msg.split(",", 1)[1])
         else:
-            self.win.out.append(msg)
+            self.win.log(msg)

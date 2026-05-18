@@ -48,20 +48,28 @@ class LightControlWidget(QComboBox):
         QComboBox.__init__(self)
         self.win = win
         self.lights = Lights()
-        self.addItems(self.lights.getOptions())
-        self.lights.set("on")
-        self.setCurrentText("on")
-        self.currentTextChanged.connect(self.handle)
         self.label = QLabel("Lights")
         self.label.setAlignment(Qt.AlignRight)
+        self.addItems(["on", "off"])
         self.signal.connect(self.handleSignal)
+        self.currentTextChanged.connect(self.handle)
+        self._setState("on")
+
+    def _setState(self, state):
+        self.lights.set(state)
+        if self.currentText() != state:
+            self.blockSignals(True)
+            self.setCurrentText(state)
+            self.blockSignals(False)
+        self.setToolTip(f"Lights {state.upper()}")
 
     def handle(self, text):
-        self.lights.set(text)
+        self._setState(text)
 
     def handleSignal(self, text):
-        self.lights.set(text)
-        self.setCurrentText(text)
+        if text not in ("on", "off"):
+            return
+        self._setState(text)
 
     def getLabel(self):
         return self.label

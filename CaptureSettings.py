@@ -52,7 +52,7 @@ class FilmFormatWidget(QComboBox):
         self.currentTextChanged.connect(self.handle)
 
     def handle(self, text):
-        self.win.out.append(f"film format changed to {text}")
+        self.win.log(f"film format changed to {text}")
         self.win.settings["FilmFormat"] = text
 
     def getLabel(self):
@@ -78,7 +78,7 @@ class CaptureModeWidget(QComboBox):
         self.currentTextChanged.connect(self.handle)
 
     def handle(self, text):
-        self.win.out.append(f"Capture Mode changed to {text}")
+        self.win.log(f"Capture Mode changed to {text}")
         self.win.settings["CaptureMode"] = text
 
     def currentMode():
@@ -130,8 +130,8 @@ class SaveSettingsWidget(QPushButton):
 
     def execute(self):
         if not self.thereAreUnsavedSettings():
-            self.win.out.append("Nothing to save.")
+            self.win.log("Nothing to save.")
             return
         self.win.settings.save()
         self.lastSaved = dict(self.win.settings)
-        self.win.out.append("Settings saved.")
+        self.win.log("Settings saved.")

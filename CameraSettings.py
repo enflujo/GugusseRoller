@@ -22,6 +22,20 @@ def SetMissingsToDefault(settings):
             settings[key] = defaultValues[key]
 
 
+def getControlValue(container, key):
+    if hasattr(container, "get"):
+        value = container.get(key)
+        if value is not None:
+            return value
+    try:
+        return container[key]
+    except Exception:
+        pass
+    if hasattr(container, key):
+        return getattr(container, key)
+    raise KeyError(f"Camera control {key} is not available")
+
+
 class AutoExposureWidget(QComboBox):
     def __init__(self, win):
         QComboBox.__init__(self)
@@ -58,8 +72,13 @@ class AutoExposureWidget(QComboBox):
                 {"AeMeteringMode": controls.AeMeteringModeEnum.Spot}
             )
         elif choice == "Matrix":
+            matrix_mode = getattr(
+                controls.AeMeteringModeEnum,
+                "Matrix",
+                controls.AeMeteringModeEnum.CentreWeighted,
+            )
             self.win.picam2.set_controls(
-                {"AeMeteringMode": controls.AeMeteringModeEnum.CentreWeighted}
+                {"AeMeteringMode": matrix_mode}
             )
 
     def getLabel(self):
@@ -74,7 +93,7 @@ class previewWindowWidget(QGlPicamera2):
 
     def mousePressEvent(self, event):
         if self.win.runStop.isCapturing():
-            self.win.out.append("Zoom is disabled while capturing")
+            self.win.log("Zoom is disabled while capturing")
             return
         pos = event.pos()
         x = pos.x()
@@ -126,12 +145,20 @@ class ExposureDualWidget(QSlider):
     def changeMode(self):
         exposureMode = self.win.settings["Exposure"]
         if exposureMode == "Manual":
-            min = self.win.picam2.video_configuration.controls.FrameDurationLimits[0]
-            max = self.win.picam2.video_configuration.controls.FrameDurationLimits[1]
+            duration_limit = getControlValue(
+                self.win.picam2.video_configuration.controls,
+                "FrameDurationLimits",
+            )
+            min = duration_limit[0]
+            max = duration_limit[1]
             value = self.win.settings["ExposureMicroseconds"]
         else:
-            min = int(self.win.picam2.camera_controls.ExposureValue[0] * 2)
-            max = int(self.win.picam2.camera_controls.ExposureValue[1] * 2)
+            exposure_value = getControlValue(
+                self.win.picam2.camera_controls,
+                "ExposureValue",
+            )
+            min = int(exposure_value[0] * 2)
+            max = int(exposure_value[1] * 2)
             realValue = self.win.settings["ExposureCompensationStops"]
             value = int(realValue * 2.0)
         self.setRange(min, max)
@@ -379,7 +406,7 @@ class FlipWidget(QCheckBox):
 
     def handle(self):
         self.win.settings[self.which] = self.isChecked()
-        self.win.out.append("Change requires save and restart")
+        self.win.log("Change requires save and restart")
         self.syncCamera()
 
     def syncCamera(self):

@@ -2,11 +2,13 @@ from os import listdir, mkdir, remove, path
 from shutil import move
 from threading import Thread
 from json import load
-from time import sleep
+from time import sleep, time
 from glob import glob
 
 
 class LocalThread(Thread):
+    poll_delay = 0.2
+
     def __init__(self, subdir, fileExt, signal, basePath):
         Thread.__init__(self)
         self.subdir = subdir
@@ -52,12 +54,18 @@ class LocalThread(Thread):
             if msg != "[Errno 17] File exists: '/dev/shm/complete'":
                 self.message.emit(str(e))
         while self.Loop:
-            sleep(1)
+            sleep(self.poll_delay)
             for item in listdir("/dev/shm/complete/"):
                 if path.isfile("/dev/shm/complete/{}".format(item)):
                     destination = "{}/{}".format(self.fullpath, item)
                     self.message.emit(f"xfer,{destination}")
+                    start = time()
                     move("/dev/shm/complete/{}".format(item), destination)
+                    self.message.emit(
+                        "localstats,file={},dt={:.3f}s,queue={}".format(
+                            item, time() - start, len(listdir("/dev/shm/complete/"))
+                        )
+                    )
 
     def stopLoop(self):
         self.Loop = False

@@ -9,6 +9,10 @@ from libcamera import Transform
 from ConfigFiles import ConfigFiles
 
 defaultValues = {"fps": 10}
+defaultCaptureTuning = {
+    "mainSkipBuffers": 3,
+    "rawSkipBuffers": 3,
+}
 
 
 def setMissingToDefault(settings):
@@ -25,6 +29,7 @@ class GCamera(Picamera2):
         self.fps = self.win.settings["fps"]
         self.framecount = 0
         self.captureModes = ConfigFiles("captureModes.json")
+        self.captureTuning = dict(defaultCaptureTuning)
 
         vflip = False
         hflip = False
@@ -57,14 +62,25 @@ class GCamera(Picamera2):
     def setFileIndex(self, newIndex):
         self.framecount = newIndex
 
+    def setCaptureTuning(self, tuning=None):
+        self.captureTuning = dict(defaultCaptureTuning)
+        if tuning is None:
+            return
+        for key in defaultCaptureTuning:
+            if key in tuning:
+                self.captureTuning[key] = tuning[key]
+
     def skipBuffers(self, count, which):
+        total_elapsed = 0.0
         while count > 0:
             start_time = time()
             buffers, metadata = self.capture_buffers([which])
             elapsed_time = time() - start_time
             sleep_time = max(0, (1.0 / self.fps) - elapsed_time)
             sleep(sleep_time)
+            total_elapsed += elapsed_time + sleep_time
             count -= 1
+        return total_elapsed
 
     def waitExposureChange(self, expected, maxSkip=24):
         skipCount = 0
@@ -80,20 +96,39 @@ class GCamera(Picamera2):
 
     def captureCycle(self):
         captureMode = self.win.captureMode.currentText()
+        cycle_start = time()
+        stats = {
+            "captureMode": captureMode,
+            "skipBuffers": 0,
+            "skip_s": 0.0,
+            "buffer_s": 0.0,
+            "save_s": 0.0,
+            "rename_s": 0.0,
+        }
         if captureMode == "singleJpg":
-            self.skipBuffers(3, "main")
+            skip_count = self.captureTuning["mainSkipBuffers"]
+            stats["skipBuffers"] = skip_count
+            stats["skip_s"] = self.skipBuffers(skip_count, "main")
             fn = "/dev/shm/{:05d}.jpg".format(self.framecount)
             fnComplete = "/dev/shm/complete/{:05d}.jpg".format(self.framecount)
 
+            step_start = time()
             buffers, metadata = self.capture_buffers(["main"])
+            stats["buffer_s"] = time() - step_start
             orig = self.helpers.make_image(buffers[0], self.config["main"]).convert(
                 "RGB"
             )
+            step_start = time()
             self.helpers.save(orig, metadata, fn)
+            stats["save_s"] = time() - step_start
+            step_start = time()
             os.rename(fn, fnComplete)
+            stats["rename_s"] = time() - step_start
 
         elif captureMode == "bracketing":
-            self.skipBuffers(3, "main")
+            skip_count = self.captureTuning["mainSkipBuffers"]
+            stats["skipBuffers"] = skip_count
+            stats["skip_s"] = self.skipBuffers(skip_count, "main")
             shutterMid = self.win.settings["ExposureMicroseconds"]
             shutterLow = shutterMid // 2
             shutterHigh = shutterMid * 2
@@ -129,11 +164,21 @@ class GCamera(Picamera2):
             os.rename(fn, fnComplete)
 
         elif captureMode == "DNG":
-            self.skipBuffers(3, "raw")
+            skip_count = self.captureTuning["rawSkipBuffers"]
+            stats["skipBuffers"] = skip_count
+            stats["skip_s"] = self.skipBuffers(skip_count, "raw")
             fn = f"/dev/shm/{self.framecount:05d}.dng"
             fnComplete = f"/dev/shm/complete/{self.framecount:05d}.dng"
+            step_start = time()
             buffers, metadata = self.capture_buffers(["raw"])
+            stats["buffer_s"] = time() - step_start
+            step_start = time()
             self.helpers.save_dng(buffers[0], metadata, self.config["raw"], fn)
+            stats["save_s"] = time() - step_start
+            step_start = time()
             os.rename(fn, fnComplete)
+            stats["rename_s"] = time() - step_start
 
         self.framecount += 1
+        stats["capture_s"] = time() - cycle_start
+        return stats

@@ -387,5 +387,5 @@ class MotorControlWidgets(QPushButton):
             s = msg.split(",")
             self.win.speedmeters[s[1]].setText(f"peak: {s[2]}steps/s")
         else:
-            self.win.out.append(msg)
+            self.win.log(msg)
         self.syncMotorStatus()

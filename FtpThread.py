@@ -2,11 +2,13 @@ from ftplib import FTP
 from os import listdir, makedirs, remove, path
 from threading import Thread
 from json import load
-from time import sleep
+from time import sleep, time
 from ConfigFiles import ConfigFiles
 
 
 class FtpThread(Thread):
+    poll_delay = 0.2
+
     def __init__(self, subdir, fileExt, signal):
         Thread.__init__(self)
         self.subdir = subdir
@@ -46,12 +48,12 @@ class FtpThread(Thread):
 
     def openConnection(self):
         cfg = ConfigFiles("ftp.json")
-        self.ftp = FTP(cfg["server"])
+        if cfg["server"] == None or cfg["server"] == "":
+            raise Exception("server not configured! Have you run MotorsAnFtpSetup.py?")
         self.message.emit(f"ftp settings:")
         self.message.emit(f"user={cfg['user']}, server={cfg['server']}")
         self.message.emit(f"path={cfg['path']}/{self.subdir}")
-        if cfg["server"] == None or cfg["server"] == "":
-            raise Exception("server not configured! Have you run MotorsAnFtpSetup.py?")
+        self.ftp = FTP(cfg["server"])
         self.ftp.login(user=cfg["user"], passwd=cfg["passwd"])
         if cfg["path"] != "" and cfg["path"] != ".":
             self.ftp.cwd(cfg["path"])
@@ -59,7 +61,10 @@ class FtpThread(Thread):
             self.ftp.mkd(self.subdir)
         except Exception as e:
             msg = str(e)
-            if msg != "550 {}: File exists".format(self.subdir):
+            if not (
+                msg.startswith("550 ")
+                and ("File exists" in msg or "already exists" in msg)
+            ):
                 self.message.emit(str(e))
         self.ftp.cwd(self.subdir)
         self.connected = True
@@ -74,20 +79,28 @@ class FtpThread(Thread):
             self.openConnection()
             makedirs("/dev/shm/complete", exist_ok=True)
         except Exception as e:
-            msg = str(e)
             self.message.emit(str(e))
+            self.connected = False
+            self.message.emit("End of ftp thread")
+            return
         while localLoop:
             if self.Loop == False:
                 localLoop = False
-            sleep(1)
+            sleep(self.poll_delay)
             file_list = sorted(listdir("/dev/shm/complete/"))
             for item in file_list:
                 if path.isfile("/dev/shm/complete/{}".format(item)):
                     self.message.emit(f"xfer,{item}")
+                    start = time()
                     a = open("/dev/shm/complete/{}".format(item), "rb")
                     self.ftp.storbinary("STOR {}".format(item), a)
                     a.close()
                     remove("/dev/shm/complete/{}".format(item))
+                    self.message.emit(
+                        "ftpstats,file={},dt={:.3f}s,queue={}".format(
+                            item, time() - start, len(listdir("/dev/shm/complete/"))
+                        )
+                    )
         self.message.emit("End of ftp thread")
 
     def stopLoop(self):
