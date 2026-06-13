@@ -4,3 +4,8 @@
 *.raw
 *.json
 img2snd
+__pycache__/
+logs/
+.pytest_cache/
+.venv/
+venv/
