@@ -208,8 +208,16 @@ class CaptureLoop(QThread):
         self.win = win
         self.Loop = True
         self.captureModes = ConfigFiles("captureModes.json")
+        self.export = None
 
     def run(self):
+        try:
+            self.capture()
+        except Exception as e:
+            self.signal.emit(f"Capture failed: {e}")
+            self.cleanupAfterInitializationFailure()
+
+    def capture(self):
         # send msgs
         self.signal.emit("Capture loop start")
         rawFilmFormatCfg = self.win.hwSettings["filmFormats"][
@@ -281,27 +289,18 @@ class CaptureLoop(QThread):
                 self.signal,
             )
         try:
+            if not self.Loop:
+                raise InterruptedError("Capture cancelled")
             start = self.export.getStartPoint()
+            if not self.Loop:
+                raise InterruptedError("Capture cancelled")
             self.export.start()
             self.sequence = FrameSequence(
                 self.win, start, self.signal, capture_tuning=captureTuning
             )
         except Exception as e:
             self.signal.emit(f"Export initialization failed: {e}")
-            try:
-                if getattr(self, "export", None) is not None and self.export.is_alive():
-                    self.export.stopLoop()
-                    self.export.join()
-            except Exception:
-                pass
-            for name in ["feeder", "filmdrive", "pickup"]:
-                try:
-                    self.win.motors[name].motor.disable()
-                except Exception:
-                    pass
-            self.signal.emit("syncMotors")
-            self.signal.emit("turning lights off")
-            self.signal.emit("Capture stopped!")
+            self.cleanupAfterInitializationFailure()
             return
 
         while self.Loop:
@@ -337,9 +336,33 @@ class CaptureLoop(QThread):
         self.export.join()
         self.signal.emit("Capture stopped!")
 
+    def cleanupAfterInitializationFailure(self):
+        try:
+            if self.export is not None:
+                self.export.stopLoop()
+                if self.export.is_alive():
+                    self.export.join()
+        except Exception:
+            pass
+        for name in ["feeder", "filmdrive", "pickup"]:
+            try:
+                self.win.motors[name].motor.disable()
+            except Exception:
+                pass
+        self.signal.emit("syncMotors")
+        self.signal.emit("turning lights off")
+        self.signal.emit("Capture stopped!")
+
     def stopLoop(self):
         self.signal.emit("Stopping Loop")
         self.Loop = False
+        # Export initialization may be waiting on FTP. Ask it to close its socket
+        # so Stop does not leave the button disabled until the network times out.
+        try:
+            if self.export is not None and not self.export.is_alive():
+                self.export.stopLoop()
+        except Exception:
+            pass
 
 
 class RunStopWidget(QPushButton):

@@ -70,6 +70,13 @@ Run the script with nodemon for hot-reloading.
 nodemon --exec python3 GugusseGUI.py --watch .
 ```
 
+### Desarrollo remoto recomendado
+
+Para evitar ejecutar VS Code y sus extensiones en la Raspberry Pi, consulta el
+[protocolo de desarrollo remoto](docs/desarrollo-remoto.md). Permite editar en
+otro computador, sincronizar solo el código y controlar la GUI de la pantalla
+física mediante SSH.
+
 ## Estabilización de imagen
 
 Luego de digitalizar se debe estabilizar la imagen y sincronizar el sonido (si tiene). En este video se puede ver el proceso completo: https://www.youtube.com/watch?v=5_hXPkGXYCw

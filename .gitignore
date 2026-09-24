@@ -4,3 +4,6 @@
 *.raw
 *.json
 img2snd
+__pycache__/
+logs/
+pruebas-captura/

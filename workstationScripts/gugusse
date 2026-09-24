@@ -1,0 +1,70 @@
+#!/bin/sh
+set -eu
+
+UNIT="gugusse-gui.service"
+PROJECT="/home/enflujo/Desktop/GugusseRoller"
+SCRIPT="$PROJECT/workstationScripts/gugusse"
+UNIT_SOURCE="$PROJECT/workstationScripts/gugusse-gui.service"
+DISPLAY_SOURCE="$PROJECT/workstationScripts/gugusse-display.desktop"
+PRINT_OVERRIDE_SOURCE="$PROJECT/workstationScripts/disable-print-applet.desktop"
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+usage() {
+    printf '%s\n' \
+        "Uso: gugusse <comando>" \
+        "" \
+        "  install   instala el servicio y este comando para el usuario" \
+        "  start     abre GugusseGUI en la pantalla física de la Pi" \
+        "  stop      cierra la aplicación limpiamente" \
+        "  restart   reinicia la aplicación después de cambiar código" \
+        "  status    muestra el estado del proceso" \
+        "  logs      muestra las últimas 200 líneas del journal" \
+        "  follow    sigue el journal en tiempo real" \
+        "  enable    activa el arranque automático al iniciar sesión" \
+        "  disable   desactiva el arranque automático" \
+        "  edit      abre GugusseGUI.py con Geany en la pantalla de la Pi"
+}
+
+command_name="${1:-}"
+
+case "$command_name" in
+    install)
+        mkdir -p "$HOME/.config/systemd/user" "$HOME/.config/autostart" "$HOME/.local/bin"
+        ln -sfn "$UNIT_SOURCE" "$HOME/.config/systemd/user/$UNIT"
+        ln -sfn "$DISPLAY_SOURCE" "$HOME/.config/autostart/gugusse-display.desktop"
+        ln -sfn "$PRINT_OVERRIDE_SOURCE" "$HOME/.config/autostart/print-applet.desktop"
+        ln -sfn "$SCRIPT" "$HOME/.local/bin/gugusse"
+        systemctl --user daemon-reload
+        printf 'Servicio y modo de pantalla instalados. Prueba con: gugusse status\n'
+        ;;
+    start|stop|restart)
+        systemctl --user "$command_name" "$UNIT"
+        ;;
+    status)
+        systemctl --user status "$UNIT" --no-pager
+        ;;
+    logs)
+        journalctl --user --unit "$UNIT" --lines 200 --no-pager
+        ;;
+    follow)
+        journalctl --user --unit "$UNIT" --follow
+        ;;
+    enable)
+        systemctl --user enable "$UNIT"
+        printf 'Arranque automático activado.\n'
+        ;;
+    disable)
+        systemctl --user disable "$UNIT"
+        printf 'Arranque automático desactivado.\n'
+        ;;
+    edit)
+        DISPLAY=:0 XAUTHORITY=/home/enflujo/.Xauthority \
+            geany --new-instance "$PROJECT/GugusseGUI.py" >/dev/null 2>&1 &
+        printf 'Geany abierto en la pantalla de la Pi.\n'
+        ;;
+    *)
+        usage
+        [ -z "$command_name" ] || exit 2
+        ;;
+esac

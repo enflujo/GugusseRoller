@@ -1,0 +1,19 @@
+[Unit]
+Description=Gugusse Roller graphical application
+Documentation=file:///home/enflujo/Desktop/GugusseRoller/docs/desarrollo-remoto.md
+ConditionPathExists=/tmp/.X11-unix/X0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/enflujo/Desktop/GugusseRoller
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/enflujo/.Xauthority
+Environment=QT_QPA_PLATFORM=xcb
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/enflujo/Desktop/GugusseRoller/GugusseGUI.py
+Restart=no
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

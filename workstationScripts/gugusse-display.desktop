@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Gugusse display mode
+Comment=Use a responsive 1080p60 desktop on the Raspberry Pi 4
+Exec=/usr/bin/xrandr --output HDMI-1 --mode 1920x1080 --rate 60
+OnlyShowIn=LXDE;
+X-GNOME-Autostart-enabled=true

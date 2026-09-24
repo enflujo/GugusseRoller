@@ -1,5 +1,6 @@
 import sys
 import json
+import signal
 from datetime import datetime
 from os import makedirs
 from PyQt5.QtWidgets import (
@@ -14,7 +15,7 @@ from PyQt5.QtWidgets import (
     QWidget,
     QMessageBox,
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 
 from TrinamicSilentMotor import MotorControlWidgets
 
@@ -302,6 +303,10 @@ class MainWindow(QMainWindow):
             event.accept()
 
     def _shutdownThreads(self):
+        if getattr(self, "_shutdown_complete", False):
+            return
+        self._shutdown_complete = True
+
         # Stop snapshot export thread if needed
         try:
             self.snapshot.disableExportIfRunning()
@@ -356,11 +361,33 @@ class MainWindow(QMainWindow):
             pass
         self.closeLog()
 
+    def shutdownFromSignal(self):
+        """Close safely when systemd stops or restarts the application."""
+        if getattr(self, "_shutdown_complete", False):
+            return
+        self.log("Remote shutdown requested")
+        if self.saveSettings.thereAreUnsavedSettings():
+            self.saveSettings.execute()
+        self._shutdownThreads()
+        QApplication.quit()
+
 
 app = QApplication(sys.argv)
 window = MainWindow()
 blayout = window.getBottomLayout()
 
+
+def handleShutdownSignal(*_args):
+    window.shutdownFromSignal()
+
+
+signal.signal(signal.SIGTERM, handleShutdownSignal)
+signal.signal(signal.SIGINT, handleShutdownSignal)
+
+# Give Python an opportunity to dispatch Unix signals while Qt owns the loop.
+signal_timer = QTimer(app)
+signal_timer.timeout.connect(lambda: None)
+signal_timer.start(250)
 
 window.showMaximized()
 sys.exit(app.exec_())

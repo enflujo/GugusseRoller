@@ -18,4 +18,4 @@ echo "==> Verificando soporte OpenGL..."
 glxinfo | grep "OpenGL version"
 
 echo "==> Listo. Ahora puedes ejecutar la aplicación con:"
-echo "     python3 main.py"
+echo "     python3 GugusseGUI.py"

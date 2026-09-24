@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+# Este script se ejecuta en el computador de desarrollo, no en la Pi.
+# GUGUSSE_TARGET debe coincidir con una entrada de ~/.ssh/config.
+TARGET="${GUGUSSE_TARGET:-gugusse}"
+REMOTE_DIR="${GUGUSSE_REMOTE_DIR:-/home/enflujo/Desktop/GugusseRoller}"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+command -v rsync >/dev/null 2>&1 || {
+    printf 'Falta rsync en el computador de desarrollo.\n' >&2
+    exit 1
+}
+
+# Solo sincroniza código y recursos estáticos. No toca los JSON de hardware,
+# credenciales FTP, capturas, logs ni datos generados en la Pi.
+rsync -az --prune-empty-dirs \
+    --include='/*.py' \
+    --include='/requirements.txt' \
+    --include='/gfx/' \
+    --include='/gfx/***' \
+    --exclude='*' \
+    "$PROJECT/" "$TARGET:$REMOTE_DIR/"
+
+ssh "$TARGET" /home/enflujo/.local/bin/gugusse restart
+ssh "$TARGET" /home/enflujo/.local/bin/gugusse status
