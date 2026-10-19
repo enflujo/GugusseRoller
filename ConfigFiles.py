@@ -18,7 +18,26 @@ class ConfigFiles(dict):
             data = self.config[filename]()
             with open(filename, "wt") as h:
                 json.dump(data, h, indent=4)
+        if filename == "hardwarecfg.json":
+            data = self._migrateHardwareSettings(data)
         super(ConfigFiles, self).__init__(data)
+
+    def _migrateHardwareSettings(self, data):
+        defaults = self.getDefaultHardwareSettings()
+        changed = False
+        for format_name, format_cfg in data.get("filmFormats", {}).items():
+            if "framesPerReelAdvance" not in format_cfg:
+                format_cfg["framesPerReelAdvance"] = (
+                    defaults["filmFormats"]
+                    .get(format_name, {})
+                    .get("framesPerReelAdvance", 1)
+                )
+                changed = True
+        if changed:
+            with open(f"_{self.filename}", "wt") as h:
+                json.dump(data, h, sort_keys=True, indent=4)
+            shutil.move(f"_{self.filename}", self.filename)
+        return data
 
     def save(self):
         with open(f"_{self.filename}", "wt") as h:
@@ -79,6 +98,7 @@ class ConfigFiles(dict):
             },
             "filmFormats": {
                 "16mm": {
+                    "framesPerReelAdvance": 3,
                     "feeder": {
                         "faultTreshold": 4000,
                         "ignoreInitial": 5,
@@ -102,6 +122,7 @@ class ConfigFiles(dict):
                     },
                 },
                 "16mmBigReels": {
+                    "framesPerReelAdvance": 3,
                     "feeder": {
                         "faultTreshold": 4000,
                         "ignoreInitial": 5,
@@ -125,6 +146,7 @@ class ConfigFiles(dict):
                     },
                 },
                 "35mm": {
+                    "framesPerReelAdvance": 1,
                     "feeder": {
                         "faultTreshold": 4000,
                         "ignoreInitial": 10,
@@ -148,6 +170,7 @@ class ConfigFiles(dict):
                     },
                 },
                 "35mmBigReels": {
+                    "framesPerReelAdvance": 1,
                     "feeder": {
                         "faultTreshold": 4000,
                         "ignoreInitial": 10,
@@ -171,6 +194,7 @@ class ConfigFiles(dict):
                     },
                 },
                 "35mmSoundtrack": {
+                    "framesPerReelAdvance": 6,
                     "feeder": {
                         "faultTreshold": 4000,
                         "ignoreInitial": 10,
@@ -194,6 +218,7 @@ class ConfigFiles(dict):
                     },
                 },
                 "8mm": {
+                    "framesPerReelAdvance": 6,
                     "feeder": {
                         "faultTreshold": 4000,
                         "ignoreInitial": 5,
@@ -217,6 +242,7 @@ class ConfigFiles(dict):
                     },
                 },
                 "pathex": {
+                    "framesPerReelAdvance": 3,
                     "feeder": {
                         "faultTreshold": 4000,
                         "ignoreInitial": 5,
@@ -240,6 +266,7 @@ class ConfigFiles(dict):
                     },
                 },
                 "super8": {
+                    "framesPerReelAdvance": 6,
                     "feeder": {
                         "faultTreshold": 4000,
                         "ignoreInitial": 0,

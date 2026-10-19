@@ -2,6 +2,7 @@ from PyQt5.QtWidgets import QComboBox, QLabel, QPushButton, QLineEdit
 from PyQt5.QtCore import Qt
 from datetime import datetime
 from ConfigFiles import ConfigFiles
+from CaptureLoop import resolve_film_format_cfg
 import json
 import re
 import os
@@ -54,6 +55,14 @@ class FilmFormatWidget(QComboBox):
     def handle(self, text):
         self.win.log(f"film format changed to {text}")
         self.win.settings["FilmFormat"] = text
+        cfg = resolve_film_format_cfg(self.allFormats[text])
+        for motor in ["feeder", "filmdrive", "pickup"]:
+            m = self.win.motors[motor].motor
+            m.setFormat(cfg[motor])
+            editor = self.win.speedEdits[motor]
+            editor.blockSignals(True)
+            editor.setValue(m.speed)
+            editor.blockSignals(False)
 
     def getLabel(self):
         return self.label
@@ -135,3 +144,37 @@ class SaveSettingsWidget(QPushButton):
         self.win.settings.save()
         self.lastSaved = dict(self.win.settings)
         self.win.log("Settings saved.")
+
+
+class ResetSpeedsWidget(QPushButton):
+    def __init__(self, win):
+        QPushButton.__init__(self, "Reset Speeds")
+        self.win=win
+        self.clicked.connect(self.execute)
+
+    def execute(self):
+        cfg = resolve_film_format_cfg(
+            self.win.hwSettings["filmFormats"][self.win.filmFormat.currentText()]
+        )
+        changed = False
+        for motor in ["feeder", "filmdrive", "pickup"]:
+            target = cfg[motor]["speed"]
+            m = self.win.motors[motor].motor
+            if int(m.speed) != int(target):
+                changed = True
+            if not m.setSpeed(target):
+                self.win.log(
+                    f"Reset Speeds: {motor} default speed {target} is outside "
+                    f"its {m.minSpeed}-{m.maxSpeed} hardware range, left unchanged."
+                )
+                continue
+            editor = self.win.speedEdits[motor]
+            editor.blockSignals(True)
+            editor.setValue(m.speed)
+            editor.blockSignals(False)
+        if changed:
+            self.win.log("Speeds reset to film format defaults.")
+        else:
+            self.win.log(
+                "Reset Speeds had no effect: speeds already at film format defaults."
+            )

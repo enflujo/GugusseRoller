@@ -17,10 +17,10 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer
 
-from TrinamicSilentMotor import MotorControlWidgets
+from TrinamicSilentMotor import MotorControlWidgets, MotorSpeedWidget
 
 from GCamera import GCamera
-from Lights import LightControlWidget
+from Lights import LightControlWidget, EconolightWidget
 
 import CameraSettings
 import CaptureSettings
@@ -129,17 +129,20 @@ class MainWindow(QMainWindow):
 
         self.hwSettings = ConfigFiles("hardwarecfg.json")
 
+        self.filmFormat = CaptureSettings.FilmFormatWidget(self)
+        initialFormatCfg = CaptureLoop.resolve_film_format_cfg(
+            self.hwSettings["filmFormats"][self.filmFormat.currentText()]
+        )
+
         threeMotorsLayout = QHBoxLayout()
         self.motors = {}
-        self.speedmeters = {}
+        self.speedEdits = {}
         for motor in ["feeder", "filmdrive", "pickup"]:
             motorSeparatorLayout = QVBoxLayout()
             label = QLabel(motor)
             label.setAlignment(Qt.AlignCenter)
             label.setStyleSheet("border: 1px solid black;")
             motorSeparatorLayout.addWidget(label)
-            self.speedmeters[motor] = QLabel("peak: ?steps/s")
-            motorSeparatorLayout.addWidget(self.speedmeters[motor])
             threeButtonsLayout = QHBoxLayout()
             trace = False
             if motor == "filmdrive":
@@ -147,6 +150,11 @@ class MainWindow(QMainWindow):
             self.motors[motor] = MotorControlWidgets(
                 self, self.hwSettings[motor], trace=trace
             )
+            self.motors[motor].motor.setFormat(initialFormatCfg[motor])
+            self.speedEdits[motor] = MotorSpeedWidget(
+                self, self.motors[motor].motor
+            )
+            motorSeparatorLayout.addWidget(self.speedEdits[motor])
             threeButtonsLayout.addWidget(self.motors[motor].ccw)
             threeButtonsLayout.addWidget(self.motors[motor])
             threeButtonsLayout.addWidget(self.motors[motor].cw)
@@ -156,9 +164,13 @@ class MainWindow(QMainWindow):
 
         left_layout.addLayout(threeMotorsLayout)
 
-        # Light control
+        self.resetSpeeds = CaptureSettings.ResetSpeedsWidget(self)
+        left_layout.addWidget(self.resetSpeeds)
+
         hlayout = QHBoxLayout()
         self.light_selector = LightControlWidget(self)
+        self.econolight = EconolightWidget(self)
+        hlayout.addWidget(self.econolight)
         hlayout.addWidget(self.light_selector.getLabel())
         hlayout.addWidget(self.light_selector)
         left_layout.addLayout(hlayout)
@@ -173,7 +185,6 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(hlayout)
 
         # Capture Mode
-        self.filmFormat = CaptureSettings.FilmFormatWidget(self)
         hlayout = QHBoxLayout()
         hlayout.addWidget(self.filmFormat.getLabel())
         hlayout.addWidget(self.filmFormat)
@@ -247,6 +258,9 @@ class MainWindow(QMainWindow):
         self.captureMode.setEnabled(False)
         self.sensors.learn.setEnabled(False)
         self.snapshot.setEnabled(False)
+        self.resetSpeeds.setEnabled(False)
+        for motor in self.speedEdits:
+            self.speedEdits[motor].setEnabled(False)
 
     def reenableWidgetsAfterCapture(self):
         self.light_selector.setEnabled(True)
@@ -255,6 +269,9 @@ class MainWindow(QMainWindow):
         self.captureMode.setEnabled(True)
         self.snapshot.setEnabled(True)
         self.sensors.enableLearnIfPossible()
+        self.resetSpeeds.setEnabled(True)
+        for motor in self.speedEdits:
+            self.speedEdits[motor].setEnabled(True)
         self.motors["feeder"].syncMotorStatus()
         self.motors["filmdrive"].syncMotorStatus()
         self.motors["pickup"].syncMotorStatus()

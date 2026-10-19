@@ -130,9 +130,17 @@ class FrameSequence:
         self.feeder.enable()
         self.pickup.enable()
         self.signal.emit("syncMotors")
+        film_format_cfg = resolve_film_format_cfg(
+            self.win.hwSettings["filmFormats"][self.win.filmFormat.currentText()]
+        )
+        self.frames_per_reel_advance = film_format_cfg.get(
+            "framesPerReelAdvance", 1
+        )
+        self.frame_count = 0
 
     def frameAdvance(self):
         frame_start = time()
+        self.frame_count += 1
         m1 = MotorThread(self.filmdrive)
         m2 = MotorThread(self.feeder)
         m3 = MotorThread(self.pickup)
@@ -155,6 +163,8 @@ class FrameSequence:
             self.signal.emit("sensors, wire disconnected...")
             self.signal.emit("---------------------------------------------")
             raise Exception("Capture stopped by Motor Faults!")
+        self.win.light_selector.lights.set("on")
+        self.win.light_selector.signal.emit("on")
         settle_start = time()
         sleep(self.settle_delay)
         settle_s = time() - settle_start
@@ -168,11 +178,19 @@ class FrameSequence:
             self.signal.emit("syncMotors")
             self.signal.emit("turning lights off")
             raise Exception("Stop")
+        skip_reels = (
+            self.frames_per_reel_advance > 1
+            and self.frame_count % self.frames_per_reel_advance != 1
+        )
+        if self.win.econolight.isChecked():
+            self.win.light_selector.lights.set("off")
+            self.win.light_selector.signal.emit("off")
         reels_start = time()
-        m2.start()
-        m3.start()
-        m3.join()
-        m2.join()
+        if not skip_reels:
+            m2.start()
+            m3.start()
+            m3.join()
+            m2.join()
         reels_s = time() - reels_start
         filmdrive_start = time()
         m1.start()
@@ -225,9 +243,10 @@ class CaptureLoop(QThread):
         ]
         currentFilmFormatCfg = resolve_film_format_cfg(rawFilmFormatCfg)
         captureTuning = currentFilmFormatCfg.get("capture", {})
-        self.win.motors["feeder"].motor.setFormat(currentFilmFormatCfg["feeder"])
-        self.win.motors["filmdrive"].motor.setFormat(currentFilmFormatCfg["filmdrive"])
-        self.win.motors["pickup"].motor.setFormat(currentFilmFormatCfg["pickup"])
+        for motor_name in MOTOR_NAMES:
+            motor = self.win.motors[motor_name].motor
+            motor.setFormat(currentFilmFormatCfg[motor_name], preserveSpeed=True)
+            motor.resetSpeedAdaptation()
         self.win.picam2.setCaptureTuning(captureTuning)
         self.reporter = FrameTimingReporter(self.signal)
         self.signal.emit(
@@ -322,6 +341,7 @@ class CaptureLoop(QThread):
                     sleep(0.1)
                 if timeout <= time():
                     self.signal.emit("timeout xfer error")
+                    self.signal.emit("turning lights off")
                     self.stopLoop()
         self.signal.emit("waiting up to 2 minutes for transfer queue to be cleared")
         timeout = time() + 120
@@ -329,6 +349,7 @@ class CaptureLoop(QThread):
             sleep(0.1)
             if time() > timeout:
                 self.signal.emit("TIMEOUT waiting for end")
+                self.signal.emit("turning lights off")
                 break
 
         self.signal.emit("stopping Export")
