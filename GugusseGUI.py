@@ -25,6 +25,7 @@ from Lights import LightControlWidget
 import CameraSettings
 import CaptureSettings
 import CaptureLoop
+from PendingImages import PendingImagesButton
 import SensorReport
 from ConfigFiles import ConfigFiles
 
@@ -168,6 +169,8 @@ class MainWindow(QMainWindow):
         hlayout = QHBoxLayout()
         hlayout.addWidget(self.projectName.getLabel())
         hlayout.addWidget(self.projectName)
+        self.assignPending = PendingImagesButton(self)
+        hlayout.addWidget(self.assignPending)
         self.lastFileLabel = QLabel("...")
         hlayout.addWidget(self.lastFileLabel)
         left_layout.addLayout(hlayout)
@@ -243,6 +246,7 @@ class MainWindow(QMainWindow):
     def disableWidgetsWhenCapture(self):
         self.light_selector.setEnabled(False)
         self.projectName.setEnabled(False)
+        self.assignPending.setEnabled(False)
         self.filmFormat.setEnabled(False)
         self.captureMode.setEnabled(False)
         self.sensors.learn.setEnabled(False)
@@ -251,6 +255,7 @@ class MainWindow(QMainWindow):
     def reenableWidgetsAfterCapture(self):
         self.light_selector.setEnabled(True)
         self.projectName.setEnabled(True)
+        self.assignPending.setEnabled(True)
         self.filmFormat.setEnabled(True)
         self.captureMode.setEnabled(True)
         self.snapshot.setEnabled(True)
@@ -307,17 +312,17 @@ class MainWindow(QMainWindow):
             return
         self._shutdown_complete = True
 
-        # Stop snapshot export thread if needed
-        try:
-            self.snapshot.disableExportIfRunning()
-        except Exception:
-            pass
-
         # If a snapshot capture is underway, wait for it to finish
         try:
             if hasattr(self.snapshot, "trigger") and self.snapshot.trigger is not None:
                 if self.snapshot.trigger.isRunning():
                     self.snapshot.trigger.wait()
+        except Exception:
+            pass
+
+        # Stop snapshot export thread if needed
+        try:
+            self.snapshot.disableExportIfRunning()
         except Exception:
             pass
 

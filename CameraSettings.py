@@ -1,5 +1,11 @@
-from PyQt5.QtWidgets import QSlider, QComboBox, QLabel, QPushButton, QCheckBox
-from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QSlider,
+    QComboBox,
+    QLabel,
+    QPushButton,
+    QCheckBox,
+)
+from PyQt5.QtCore import QEvent, QObject, Qt
 from libcamera import controls, Transform
 from picamera2 import Preview
 from picamera2.previews.qt import QGlPicamera2
@@ -85,21 +91,26 @@ class AutoExposureWidget(QComboBox):
         return self.label
 
 
-class previewWindowWidget(QGlPicamera2):
-    def __init__(self, win):
-        QGlPicamera2.__init__(self, win.picam2)
+class _PreviewZoomController(QObject):
+    def __init__(self, win, preview):
+        super().__init__(preview)
         self.zoomed = False
         self.win = win
+        self.preview = preview
+        self.preview.installEventFilter(self)
 
-    def mousePressEvent(self, event):
+    def eventFilter(self, watched, event):
+        if watched is self.preview and event.type() == QEvent.MouseButtonPress:
+            self.zoomAt(event.pos().x(), event.pos().y())
+            return True
+        return super().eventFilter(watched, event)
+
+    def zoomAt(self, x, y):
         if self.win.runStop.isCapturing():
             self.win.log("Zoom is disabled while capturing")
             return
-        pos = event.pos()
-        x = pos.x()
-        y = pos.y()
-        winw = self.width()
-        winh = self.height()
+        winw = self.preview.width()
+        winh = self.preview.height()
         cfg = self.win.picam2.getConfig()
         sensorw = cfg["main"]["size"][0]
         sensorh = cfg["main"]["size"][1]
@@ -131,6 +142,12 @@ class previewWindowWidget(QGlPicamera2):
 
         self.win.picam2.set_controls({"ScalerCrop": (x1, y1, winw, winh)})
         self.zoomed = True
+
+
+def previewWindowWidget(win):
+    preview = QGlPicamera2(win.picam2)
+    preview.zoom_controller = _PreviewZoomController(win, preview)
+    return preview
 
 
 class ExposureDualWidget(QSlider):

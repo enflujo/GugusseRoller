@@ -42,6 +42,9 @@ The objectives of the software is to:
 
 ## Getting started
 
+Para el comportamiento ante caídas de FTP y la recuperación de imágenes
+pendientes, consultar [recuperación de transferencias](docs/recuperacion-transferencias.md).
+
 Download the software:
 
 ```bash

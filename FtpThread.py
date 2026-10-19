@@ -1,17 +1,19 @@
-from ftplib import FTP
-from os import listdir, makedirs, remove, path
-from threading import Thread
-from json import load
-from time import sleep, time
+from ftplib import FTP, error_temp, error_proto, error_perm
+import math
+import socket
+from threading import Thread, Event
+from time import monotonic
 from ConfigFiles import ConfigFiles
+from TransferQueue import TransferQueue, frame_index
 
 
 class FtpThread(Thread):
     poll_delay = 0.2
     default_timeout = 10
+    retryable = (OSError, EOFError, error_temp, error_proto)
 
     def __init__(self, subdir, fileExt, signal):
-        Thread.__init__(self)
+        super().__init__()
         self.subdir = subdir
         self.fileExt = fileExt
         self.connected = False
@@ -19,6 +21,21 @@ class FtpThread(Thread):
         self.message = signal
         self.fileIndex = 0
         self.ftp = None
+        self.stopped = Event()
+        # Freeze the destination: editing ftp.json during a retry must never
+        # redirect images that have already been captured.
+        self.cfg = dict(ConfigFiles("ftp.json"))
+        timeout = float(self.cfg.get("timeout", self.default_timeout))
+        if not math.isfinite(timeout) or not 0 < timeout <= 60:
+            raise ValueError("FTP timeout must be between 0 and 60 seconds")
+        self.timeout = timeout
+        self.queue = TransferQueue({
+            "mode": "ftp", "server": self.cfg["server"],
+            "user": self.cfg["user"], "path": self.cfg["path"],
+            "project": subdir,
+        })
+        self.failure = None
+        self.remote_names = set()
 
     def forceStartPoint(self, start):
         self.fileIndex = start
@@ -26,111 +43,182 @@ class FtpThread(Thread):
     def getStartPoint(self):
         if not self.Loop:
             raise InterruptedError("FTP connection cancelled")
-        if not self.connected:
-            self.openConnection()
-        listdir = []
-        self.message.emit("listing remote (wait)".format(self.subdir))
+        self.queue.acquire()
         try:
-            listdir = self.ftp.nlst("*.{}".format(self.fileExt))
-        except Exception as e:
-            msg = str(e)
-            if msg != "450 No files found":
-                self.message.emit(str(e))
-                raise Exception(msg)
-            self.message.emit("no {} in {}".format(self.fileExt, self.subdir))
-            self.fileIndex = 0
-            return 0
-        if len(listdir) == 0:
-            return 0
-        self.message.emit("sorting list")
-        listdir.sort()
-        lastFile = listdir[len(listdir) - 1]
-        self.message.emit("last file in {}={}".format(self.subdir, lastFile))
-        self.fileIndex = 1 + int(lastFile.split(".")[0].split("_")[0], 10)
-        self.message.emit("File index now at: {}".format(self.fileIndex))
-        return self.fileIndex
+            self.openConnection()
+            # Numeric maximum also works after frame 99999, and NLST may
+            # return paths instead of bare names. Include every capture mode.
+            self.fileIndex = max(
+                self.queue.next_index(),
+                max((frame_index(n) for n in self.remote_names), default=-1) + 1,
+            )
+            self.message.emit(f"File index now at: {self.fileIndex}")
+            self.message.emit(f"Persistent capture queue: {self.queue.directory}")
+            return self.fileIndex
+        except Exception:
+            self.closeConnection()
+            self.queue.release()
+            raise
 
     def openConnection(self):
         if not self.Loop:
             raise InterruptedError("FTP connection cancelled")
-        cfg = ConfigFiles("ftp.json")
-        if cfg["server"] == None or cfg["server"] == "":
-            raise Exception("server not configured! Have you run MotorsAnFtpSetup.py?")
-        timeout = cfg.get("timeout", self.default_timeout)
-        self.message.emit(f"ftp settings:")
-        self.message.emit(f"user={cfg['user']}, server={cfg['server']}")
-        self.message.emit(f"path={cfg['path']}/{self.subdir}")
-        self.message.emit(f"connecting to FTP (timeout: {timeout}s)")
+        self.closeConnection()
+        cfg = self.cfg
+        if not cfg["server"]:
+            raise ValueError("FTP server not configured")
+        self.message.emit(f"connecting to FTP (timeout: {self.timeout}s)")
         self.ftp = FTP()
-        self.ftp.connect(cfg["server"], timeout=timeout)
-        if not self.Loop:
-            raise InterruptedError("FTP connection cancelled")
+        self.ftp.connect(cfg["server"], timeout=self.timeout)
+        self.checkRunning()
         self.ftp.login(user=cfg["user"], passwd=cfg["passwd"])
-        if not self.Loop:
-            raise InterruptedError("FTP connection cancelled")
-        if cfg["path"] != "" and cfg["path"] != ".":
+        self.checkRunning()
+        if cfg["path"] not in ("", "."):
             self.ftp.cwd(cfg["path"])
         try:
             self.ftp.mkd(self.subdir)
-        except Exception as e:
-            msg = str(e)
-            if not (
-                msg.startswith("550 ")
-                and ("File exists" in msg or "already exists" in msg)
-            ):
-                self.message.emit(str(e))
+        except error_perm:
+            # CWD below verifies that the directory really exists and that we
+            # may enter it; do not suppress transient/network errors here.
+            pass
         self.ftp.cwd(self.subdir)
+        self.checkRunning()
+        try:
+            names = self.ftp.nlst()
+        except error_temp as e:
+            if str(e) != "450 No files found":
+                raise
+            names = []
+        self.remote_names = {
+            n.rsplit("/", 1)[-1] for n in names
+            if frame_index(n) >= 0 and n.lower().endswith((".jpg", ".dng"))
+        }
+        self.checkRunning()
         self.connected = True
 
-    def run(self):
+    def checkRunning(self):
         if not self.Loop:
-            return
-        try:
-            # getStartPoint() already opens the connection. Reuse it instead of
-            # making Run wait for a second connection to the same server.
-            if not self.connected:
-                self.openConnection()
-            makedirs("/dev/shm/complete", exist_ok=True)
-        except Exception as e:
-            self.message.emit(str(e))
-            self.connected = False
-            self.message.emit("End of ftp thread")
-            return
+            raise InterruptedError("FTP connection cancelled")
+
+    def closeConnection(self):
+        self.connected = False
+        if self.ftp is not None:
+            try:
+                # shutdown wakes a control-channel read even if ftplib's file
+                # object still holds the socket open in another thread.
+                sock = self.ftp.sock
+                if sock is not None:
+                    sock.shutdown(socket.SHUT_RDWR)
+            except (OSError, AttributeError):
+                pass
+            try:
+                self.ftp.close()
+            except Exception:
+                pass
+
+    def existingFileMatches(self, item, stream):
+        stream.seek(0, 2)
+        local_size = stream.tell()
+        stream.seek(0)
+        remote_size = 0
+        prefix_matches = True
+
+        def compare(block):
+            nonlocal remote_size, prefix_matches
+            self.checkRunning()
+            remote_size += len(block)
+            if stream.read(len(block)) != block:
+                prefix_matches = False
+
+        # RETR must finish successfully, including its completion reply. A
+        # timeout midway through verification is never evidence of truncation.
+        self.ftp.retrbinary("RETR " + item, compare)
+        stream.seek(0)
+        if prefix_matches and remote_size == local_size:
+            return True
+        if prefix_matches and remote_size < local_size:
+            self.message.emit(
+                f"Archivo FTP incompleto validado: {item}, {remote_size} de {local_size} bytes. "
+                "Se enviará la imagen completa antes de reemplazarlo."
+            )
+            return False
+        raise FileExistsError(
+            f"Conflicto FTP en {item}: el archivo remoto difiere de la copia local "
+            "y no se pudo validar como una copia incompleta. "
+            "La imagen ya está asignada a su proyecto. Se conservan ambas copias; "
+            "hay que revisar el archivo remoto antes de continuar."
+        )
+
+    def upload(self, item):
+        attempt = 0
         while self.Loop:
-            sleep(self.poll_delay)
-            if not self.Loop:
-                break
-            file_list = sorted(listdir("/dev/shm/complete/"))
-            for item in file_list:
-                if not self.Loop:
-                    break
-                if path.isfile("/dev/shm/complete/{}".format(item)):
-                    self.message.emit(f"xfer,{item}")
-                    start = time()
-                    try:
-                        with open("/dev/shm/complete/{}".format(item), "rb") as h:
-                            self.ftp.storbinary("STOR {}".format(item), h)
-                    except Exception as e:
-                        if self.Loop:
-                            self.message.emit(f"FTP transfer failed: {e}")
-                        self.Loop = False
-                        break
-                    remove("/dev/shm/complete/{}".format(item))
+            with open(self.queue.directory / item, "rb") as h:
+                try:
+                    if not self.connected:
+                        self.openConnection()
+                    self.checkRunning()
+                    if item in self.remote_names:
+                        # RNTO may have succeeded before its reply was lost.
+                        # Identical bytes acknowledge delivery. A verified
+                        # shorter prefix is repaired using the same atomic
+                        # publication as a new upload, preserving the old file
+                        # until the complete replacement has reached the server.
+                        if self.existingFileMatches(item, h):
+                            return True
+                    temporary = ".gugusse-" + item + ".upload"
+                    self.ftp.storbinary("STOR " + temporary, h)
+                    self.checkRunning()
+                    # STOR success includes the server's completion reply.
+                    # Publish only complete files under the final image name.
+                    self.ftp.rename(temporary, item)
+                    self.remote_names.add(item)
+                    return True
+                except FileExistsError:
+                    raise
+                except self.retryable as e:
+                    self.closeConnection()
+                    if not self.Loop:
+                        return False
+                    attempt += 1
+                    delay = min(2 ** min(attempt - 1, 5), 30)
                     self.message.emit(
-                        "ftpstats,file={},dt={:.3f}s,queue={}".format(
-                            item, time() - start, len(listdir("/dev/shm/complete/"))
-                        )
+                        f"FTP retry,file={item},attempt={attempt},"
+                        f"delay={delay}s,error={type(e).__name__}: {e}"
                     )
-        self.message.emit("End of ftp thread")
+            self.stopped.wait(delay)
+        return False
+
+    def run(self):
+        try:
+            while self.Loop:
+                if self.stopped.wait(self.poll_delay):
+                    break
+                for item in self.queue.files():
+                    if not self.Loop:
+                        break
+                    self.message.emit(f"xfer,{item}")
+                    start = monotonic()
+                    if not self.upload(item):
+                        break
+                    self.queue.remove(item)
+                    self.message.emit(
+                        f"ftpstats,file={item},dt={monotonic() - start:.3f}s,"
+                        f"queue={len(self.queue.files())}"
+                    )
+        except Exception as e:
+            if self.Loop:
+                self.failure = f"{type(e).__name__}: {e}"
+                self.message.emit(f"FTP stopped; pending images preserved: {self.failure}")
+        finally:
+            self.Loop = False
+            self.closeConnection()
+            self.queue.release()
+            self.message.emit("End of ftp thread")
 
     def stopLoop(self):
         self.message.emit("The FTP thread received the command to finish and stop")
         self.Loop = False
-        # Closing the socket interrupts a pending FTP command (listing/upload/login).
-        # connect() itself is bounded by default_timeout.
-        try:
-            if self.ftp is not None:
-                self.ftp.close()
-                self.connected = False
-        except Exception:
-            pass
+        self.stopped.set()
+        self.closeConnection()
+        if not self.is_alive():
+            self.queue.release()

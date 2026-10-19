@@ -2,7 +2,6 @@ import json
 from picamera2 import Picamera2
 from picamera2.previews.qt import QGlPicamera2
 from time import sleep, time
-import os
 from threading import Thread
 import CameraSettings
 from libcamera import Transform
@@ -59,6 +58,9 @@ class GCamera(Picamera2):
     def createPreviewWidget(self):
         self.camWidget = CameraSettings.previewWindowWidget(self.win)
 
+    def setTransferQueue(self, queue):
+        self.transferQueue = queue
+
     def setFileIndex(self, newIndex):
         self.framecount = newIndex
 
@@ -96,6 +98,7 @@ class GCamera(Picamera2):
 
     def captureCycle(self):
         captureMode = self.win.captureMode.currentText()
+        self.transferQueue.begin_frame(self.framecount)
         cycle_start = time()
         stats = {
             "captureMode": captureMode,
@@ -109,8 +112,7 @@ class GCamera(Picamera2):
             skip_count = self.captureTuning["mainSkipBuffers"]
             stats["skipBuffers"] = skip_count
             stats["skip_s"] = self.skipBuffers(skip_count, "main")
-            fn = "/dev/shm/{:05d}.jpg".format(self.framecount)
-            fnComplete = "/dev/shm/complete/{:05d}.jpg".format(self.framecount)
+            fn = str(self.transferQueue.staging / "{:05d}.jpg").format(self.framecount)
 
             step_start = time()
             buffers, metadata = self.capture_buffers(["main"])
@@ -122,7 +124,7 @@ class GCamera(Picamera2):
             self.helpers.save(orig, metadata, fn)
             stats["save_s"] = time() - step_start
             step_start = time()
-            os.rename(fn, fnComplete)
+            self.transferQueue.publish(fn)
             stats["rename_s"] = time() - step_start
 
         elif captureMode == "bracketing":
@@ -133,42 +135,38 @@ class GCamera(Picamera2):
             shutterLow = shutterMid // 2
             shutterHigh = shutterMid * 2
 
-            fn = "/dev/shm/{:05d}_m.jpg".format(self.framecount)
-            fnComplete = "/dev/shm/complete/{:05d}_m.jpg".format(self.framecount)
+            fn = str(self.transferQueue.staging / "{:05d}_m.jpg").format(self.framecount)
             buffers, metadata = self.waitExposureChange(shutterMid)
             self.set_controls({"ExposureTime": shutterLow})
             orig = self.helpers.make_image(buffers[0], self.config["main"]).convert(
                 "RGB"
             )
             self.helpers.save(orig, metadata, fn)
-            os.rename(fn, fnComplete)
+            self.transferQueue.publish(fn)
 
-            fn = "/dev/shm/{:05d}_l.jpg".format(self.framecount)
-            fnComplete = "/dev/shm/complete/{:05d}_l.jpg".format(self.framecount)
+            fn = str(self.transferQueue.staging / "{:05d}_l.jpg").format(self.framecount)
             buffers, metadata = self.waitExposureChange(shutterLow)
             self.set_controls({"ExposureTime": shutterHigh})
             orig = self.helpers.make_image(buffers[0], self.config["main"]).convert(
                 "RGB"
             )
             self.helpers.save(orig, metadata, fn)
-            os.rename(fn, fnComplete)
+            self.transferQueue.publish(fn)
 
-            fn = "/dev/shm/{:05d}_h.jpg".format(self.framecount)
-            fnComplete = "/dev/shm/complete/{:05d}_h.jpg".format(self.framecount)
+            fn = str(self.transferQueue.staging / "{:05d}_h.jpg").format(self.framecount)
             buffers, metadata = self.waitExposureChange(shutterHigh)
             self.set_controls({"ExposureTime": int(shutterMid)})
             orig = self.helpers.make_image(buffers[0], self.config["main"]).convert(
                 "RGB"
             )
             self.helpers.save(orig, metadata, fn)
-            os.rename(fn, fnComplete)
+            self.transferQueue.publish(fn)
 
         elif captureMode == "DNG":
             skip_count = self.captureTuning["rawSkipBuffers"]
             stats["skipBuffers"] = skip_count
             stats["skip_s"] = self.skipBuffers(skip_count, "raw")
-            fn = f"/dev/shm/{self.framecount:05d}.dng"
-            fnComplete = f"/dev/shm/complete/{self.framecount:05d}.dng"
+            fn = str(self.transferQueue.staging / f"{self.framecount:05d}.dng")
             step_start = time()
             buffers, metadata = self.capture_buffers(["raw"])
             stats["buffer_s"] = time() - step_start
@@ -176,9 +174,10 @@ class GCamera(Picamera2):
             self.helpers.save_dng(buffers[0], metadata, self.config["raw"], fn)
             stats["save_s"] = time() - step_start
             step_start = time()
-            os.rename(fn, fnComplete)
+            self.transferQueue.publish(fn)
             stats["rename_s"] = time() - step_start
 
+        self.transferQueue.finish_frame()
         self.framecount += 1
         stats["capture_s"] = time() - cycle_start
         return stats

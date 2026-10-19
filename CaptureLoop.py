@@ -2,13 +2,13 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QPushButton
 from threading import Thread
-from time import sleep, time
+from time import sleep, time, monotonic
 from datetime import datetime
 from json import load, dumps
-from os import mkdir, listdir
 from FtpThread import FtpThread
 from LocalThread import LocalThread
 from ConfigFiles import ConfigFiles
+from PendingImages import prepare_pending_images
 
 STEP_DOMAIN_FIELDS = ("speed", "speed2", "ignoreInitial", "faultTreshold")
 MOTOR_NAMES = ("feeder", "filmdrive", "pickup")
@@ -118,10 +118,6 @@ class FrameSequence:
         self.feeder = self.win.motors["feeder"].motor
         self.pickup = self.win.motors["pickup"].motor
         self.lastNum = "0"
-        try:
-            mkdir("/dev/shm/complete")
-        except Exception:
-            pass
         self.cam = self.win.picam2
         self.cam.setFileIndex(start_frame)
         self.capture_tuning = capture_tuning or {}
@@ -187,7 +183,7 @@ class FrameSequence:
             "rename_s": capture_stats.get("rename_s", 0.0),
             "reels_s": reels_s,
             "filmdrive_s": filmdrive_s,
-            "queue_saturated": len(listdir("/dev/shm/complete")),
+            "queue_saturated": len(self.win.picam2.transferQueue.files()),
             "total_s": time() - frame_start,
         }
 
@@ -256,22 +252,6 @@ class CaptureLoop(QThread):
                 )
             )
 
-        self.win.motors["feeder"].motor.enable()
-        self.win.motors["filmdrive"].motor.enable()
-        self.win.motors["pickup"].motor.enable()
-
-        self.win.motors["feeder"].motor.clearFault()
-        self.win.motors["filmdrive"].motor.clearFault()
-        self.win.motors["pickup"].motor.clearFault()
-
-        self.win.motors["feeder"].motor.setDirection(
-            self.win.reelsDirection.currentText()
-        )
-        self.win.motors["filmdrive"].motor.setDirection("cw")
-        self.win.motors["pickup"].motor.setDirection(
-            self.win.reelsDirection.currentText()
-        )
-
         if (
             "saveMode" in self.win.hwSettings
             and self.win.hwSettings["saveMode"] == "local"
@@ -294,6 +274,23 @@ class CaptureLoop(QThread):
             start = self.export.getStartPoint()
             if not self.Loop:
                 raise InterruptedError("Capture cancelled")
+            self.win.picam2.setTransferQueue(self.export.queue)
+            self.win.motors["feeder"].motor.enable()
+            self.win.motors["filmdrive"].motor.enable()
+            self.win.motors["pickup"].motor.enable()
+
+            self.win.motors["feeder"].motor.clearFault()
+            self.win.motors["filmdrive"].motor.clearFault()
+            self.win.motors["pickup"].motor.clearFault()
+
+            self.win.motors["feeder"].motor.setDirection(
+                self.win.reelsDirection.currentText()
+            )
+            self.win.motors["filmdrive"].motor.setDirection("cw")
+            self.win.motors["pickup"].motor.setDirection(
+                self.win.reelsDirection.currentText()
+            )
+
             self.export.start()
             self.sequence = FrameSequence(
                 self.win, start, self.signal, capture_tuning=captureTuning
@@ -304,37 +301,50 @@ class CaptureLoop(QThread):
             return
 
         while self.Loop:
+            if not self.waitForExportCapacity():
+                break
             try:
                 frame_stats = self.sequence.frameAdvance()
                 self.reporter.record(frame_stats)
             except Exception as e:
                 self.signal.emit(str(e))
                 self.stopLoop()
-            if len(listdir("/dev/shm/complete")) > 6:
-                self.signal.emit("too many files waiting")
-                self.signal.emit("waiting up to 5 mins")
-                timeout = time() + 300
-                while (
-                    self.Loop
-                    and timeout > time()
-                    and len(listdir("/dev/shm/complete")) > 6
-                ):
-                    sleep(0.1)
-                if timeout <= time():
-                    self.signal.emit("timeout xfer error")
-                    self.stopLoop()
-        self.signal.emit("waiting up to 2 minutes for transfer queue to be cleared")
-        timeout = time() + 120
-        while len(listdir("/dev/shm/complete")) > 0:
-            sleep(0.1)
-            if time() > timeout:
-                self.signal.emit("TIMEOUT waiting for end")
-                break
 
         self.signal.emit("stopping Export")
         self.export.stopLoop()
         self.export.join()
+        pending = len(self.export.queue.files())
+        if pending:
+            self.signal.emit(
+                f"Quedan {pending} imágenes ya asignadas y pendientes de envío, "
+                f"guardadas en {self.export.queue.directory}. No necesitan volver a asignarse."
+            )
         self.signal.emit("Capture stopped!")
+
+    def waitForExportCapacity(self):
+        if not self.export.is_alive():
+            self.signal.emit(f"Export stopped: {self.export.failure}; images preserved")
+            self.stopLoop()
+            return False
+        if len(self.export.queue.files()) <= 6:
+            return self.Loop
+        self.signal.emit(
+            f"Hay {len(self.export.queue.files())} imágenes ya asignadas, pendientes de envío. "
+            "Captura pausada hasta que avance el envío (máximo 5 minutos)."
+        )
+        deadline = monotonic() + 300
+        while self.Loop and self.export.is_alive():
+            if len(self.export.queue.files()) <= 6:
+                return True
+            if monotonic() >= deadline:
+                self.signal.emit("FTP unavailable; capture stopped, pending images preserved")
+                self.stopLoop()
+                return False
+            sleep(0.1)
+        if self.Loop:
+            self.signal.emit(f"Export stopped: {self.export.failure}; images preserved")
+            self.stopLoop()
+        return False
 
     def cleanupAfterInitializationFailure(self):
         try:
@@ -344,11 +354,8 @@ class CaptureLoop(QThread):
                     self.export.join()
         except Exception:
             pass
-        for name in ["feeder", "filmdrive", "pickup"]:
-            try:
-                self.win.motors[name].motor.disable()
-            except Exception:
-                pass
+        # Export/setup errors must preserve holding torque and film tension.
+        # FrameSequence handles motor faults and capture failures explicitly.
         self.signal.emit("syncMotors")
         self.signal.emit("turning lights off")
         self.signal.emit("Capture stopped!")
@@ -391,6 +398,8 @@ class RunStopWidget(QPushButton):
                 )
                 return
             self.win.snapshot.disableExportIfRunning()
+            if not prepare_pending_images(self.win):
+                return
             self.captureWidgetsEnable(False)
             self.running = True
             self.stopping = False
@@ -498,8 +507,11 @@ class SnapshotWidget(QPushButton):
                     self.signal,
                 )
             self.win.picam2.setFileIndex(self.export.getStartPoint())
+            self.win.picam2.setTransferQueue(self.export.queue)
             self.export.start()
         except Exception:
+            if self.export is not None:
+                self.export.stopLoop()
             self.export = None
             raise
 
@@ -516,11 +528,17 @@ class SnapshotWidget(QPushButton):
         if self.ignore:
             self.win.log("Too early to click again for a snapshot!")
             return
+        if not prepare_pending_images(self.win):
+            return
         try:
-            if self.export == None or self.win.projectName.text() != self.projectName:
+            if (self.export is None or not self.export.is_alive()
+                    or self.win.projectName.text() != self.projectName):
                 self.initialize()
         except Exception as e:
             self.win.log(f"Snapshot initialization failed: {e}")
+            return
+        if len(self.export.queue.files()) > 6:
+            self.win.log("Transfer queue full; wait for pending images before taking a snapshot")
             return
         self.trigger = singleShotEvent(self.win.picam2, self.signal)
         self.ignore = True
